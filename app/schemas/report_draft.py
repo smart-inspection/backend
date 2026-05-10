@@ -27,3 +27,6 @@ class ReportDraftResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+class LLMReportGenerateRequest(BaseModel):
+    template_version: str = Field(default="llama3-v1", max_length=50)
