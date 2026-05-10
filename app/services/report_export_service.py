@@ -18,6 +18,8 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from sqlalchemy.orm import Session
 
 from app.services.report_template_service import build_company_report_context
+from app.db.models import ReportDraft
+from app.services.report_status_service import register_report_event
 
 
 EXPORT_DIR = Path("exports")
@@ -145,7 +147,12 @@ def _add_evidence_blocks(document: Document, evidences: list[dict]):
         document.add_paragraph("")
 
 
-def export_report_draft_to_docx(db: Session, draft_id: int) -> Path:
+def export_report_draft_to_docx(
+        db: Session,
+        draft_id: int,
+        user_id: int | None = None,
+        user_name: str | None = None,
+) -> Path:
     ctx = build_company_report_context(db, draft_id)
     header = ctx["header"]
 
@@ -227,10 +234,32 @@ def export_report_draft_to_docx(db: Session, draft_id: int) -> Path:
     _add_evidence_blocks(document, ctx["evidences"])
 
     document.save(output_path)
+
+    draft = db.query(ReportDraft).filter(ReportDraft.id == draft_id).first()
+    if draft:
+        draft.last_action = "exported_docx"
+        register_report_event(
+            db=db,
+            report_draft=draft,
+            action="exported_docx",
+            actor_user_id=user_id,
+            actor_name=user_name,
+            from_status=draft.status,
+            to_status=draft.status,
+            metadata_json={"format": "docx", "file_name": file_name},
+        )
+        db.add(draft)
+        db.commit()
+
     return output_path
 
 
-def export_report_draft_to_pdf(db: Session, draft_id: int) -> Path:
+def export_report_draft_to_pdf(
+    db: Session,
+    draft_id: int,
+    user_id: int | None = None,
+    user_name: str | None = None,
+) -> Path:
     ctx = build_company_report_context(db, draft_id)
     header = ctx["header"]
 
@@ -347,4 +376,21 @@ def export_report_draft_to_pdf(db: Session, draft_id: int) -> Path:
         story.append(Spacer(1, 10))
 
     doc.build(story)
+
+    draft = db.query(ReportDraft).filter(ReportDraft.id == draft_id).first()
+    if draft:
+        draft.last_action = "exported_pdf"
+        register_report_event(
+            db=db,
+            report_draft=draft,
+            action="exported_pdf",
+            actor_user_id=user_id,
+            actor_name=user_name,
+            from_status=draft.status,
+            to_status=draft.status,
+            metadata_json={"format": "pdf", "file_name": file_name},
+        )
+        db.add(draft)
+        db.commit()
+
     return output_path

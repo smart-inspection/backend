@@ -12,7 +12,6 @@ from app.services.report_export_service import (
 
 router = APIRouter(prefix="/report-export", tags=["report-export"])
 
-
 def get_db():
     db = SessionLocal()
     try:
@@ -20,14 +19,12 @@ def get_db():
     finally:
         db.close()
 
-
 def _build_file_response(file_path: Path, media_type: str):
     return FileResponse(
         path=str(file_path),
         filename=file_path.name,
         media_type=media_type,
     )
-
 
 @router.get("/docx/{draft_id}")
 def export_report_docx_endpoint(draft_id: int, db: Session = Depends(get_db)):
@@ -39,7 +36,6 @@ def export_report_docx_endpoint(draft_id: int, db: Session = Depends(get_db)):
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-
 
 @router.get("/pdf/{draft_id}")
 def export_report_pdf_endpoint(draft_id: int, db: Session = Depends(get_db)):

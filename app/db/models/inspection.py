@@ -26,3 +26,4 @@ class Inspection(Base):
 
     fields = relationship("InspectionField", back_populates="inspection", cascade="all, delete-orphan")
     evidences = relationship("Evidence", back_populates="inspection", cascade="all, delete-orphan")
+    report_drafts = relationship("ReportDraft", back_populates="inspection")

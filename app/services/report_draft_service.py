@@ -8,6 +8,7 @@ from langchain_ollama import ChatOllama
 from sqlalchemy.orm import Session, selectinload
 
 from app.db.models import Inspection, Transcription, ReportDraft
+from app.services.report_status_service import register_report_event
 
 
 def _safe(value, default="No registrado"):
@@ -457,7 +458,13 @@ def _render_template(inspection, transcriptions, template_version: str) -> tuple
     return "\n".join(sections).strip(), snapshot
 
 
-def generate_report_draft(db: Session, inspection_id: int, template_version: str = "v1") -> ReportDraft:
+def generate_report_draft(
+    db: Session,
+    inspection_id: int,
+    template_version: str = "v1",
+    user_id: int | None = None,
+    user_name: str | None = None,
+) -> ReportDraft:
     started = perf_counter()
 
     inspection = (
@@ -492,9 +499,37 @@ def generate_report_draft(db: Session, inspection_id: int, template_version: str
         edited_text=None,
         source_snapshot=snapshot,
         generation_time_ms=elapsed_ms,
+        last_action="draft_generated",
     )
 
     db.add(draft)
+    db.flush()
+
+    register_report_event(
+        db=db,
+        report_draft=draft,
+        action="draft_created",
+        actor_user_id=user_id,
+        actor_name=user_name,
+        to_status=draft.status,
+        metadata_json={"template_version": template_version},
+    )
+
+    register_report_event(
+        db=db,
+        report_draft=draft,
+        action="draft_generated",
+        actor_user_id=user_id,
+        actor_name=user_name,
+        from_status=draft.status,
+        to_status=draft.status,
+        metadata_json={
+            "has_generated_text": bool(draft.generated_text),
+            "generation_time_ms": elapsed_ms,
+            "template_version": template_version,
+        },
+    )
+
     db.commit()
     db.refresh(draft)
     return draft
@@ -513,13 +548,33 @@ def list_report_drafts_by_inspection(db: Session, inspection_id: int) -> list[Re
     )
 
 
-def update_report_draft(db: Session, draft_id: int, edited_text: str, status: str = "edited") -> ReportDraft | None:
+def update_report_draft(
+    db: Session,
+    draft_id: int,
+    edited_text: str,
+    status: str = "edited",
+    user_id: int | None = None,
+    user_name: str | None = None,
+) -> ReportDraft | None:
     draft = db.query(ReportDraft).filter(ReportDraft.id == draft_id).first()
     if not draft:
         return None
 
+    previous_status = draft.status
     draft.edited_text = edited_text
     draft.status = status
+    draft.last_action = "draft_edited"
+
+    register_report_event(
+        db=db,
+        report_draft=draft,
+        action="draft_edited",
+        actor_user_id=user_id,
+        actor_name=user_name,
+        from_status=previous_status,
+        to_status=draft.status,
+        metadata_json={"has_edited_text": bool(draft.edited_text)},
+    )
 
     db.add(draft)
     db.commit()

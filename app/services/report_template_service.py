@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy.orm import Session, selectinload
 
 from app.db.models import Inspection, ReportDraft, Transcription
-
+from app.db.models import Inspection, ReportDraft, Transcription, ReportStatusLog
 
 SECTION_MARKERS = [
     "1. RESUMEN EJECUTIVO",
@@ -757,6 +757,14 @@ def build_company_report_context(db: Session, draft_id: int) -> dict[str, Any]:
         transcription_count=len(transcriptions),
     )
 
+    recent_history = (
+        db.query(ReportStatusLog)
+        .filter(ReportStatusLog.report_draft_id == draft.id)
+        .order_by(ReportStatusLog.created_at.desc(), ReportStatusLog.id.desc())
+        .limit(5)
+        .all()
+    )
+
     context = {
         "draft": draft,
         "inspection": inspection,
@@ -806,6 +814,24 @@ def build_company_report_context(db: Session, draft_id: int) -> dict[str, Any]:
         "recommendations": recommendations,
         "evidences": evidences,
         "findings": findings,
+    }
+
+    context["traceability"] = {
+        "current_status": getattr(draft, "status", "draft"),
+        "status_updated_at": getattr(draft, "status_updated_at", None),
+        "status_updated_by": getattr(draft, "status_updated_by", None),
+        "last_action": getattr(draft, "last_action", None),
+        "recent_history": [
+            {
+                "action": item.action,
+                "from_status": item.from_status,
+                "to_status": item.to_status,
+                "actor_name": item.actor_name,
+                "notes": item.notes,
+                "created_at": item.created_at,
+            }
+            for item in recent_history
+        ],
     }
 
     return context
