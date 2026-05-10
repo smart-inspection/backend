@@ -1,14 +1,38 @@
 import re
 import unicodedata
 from collections import defaultdict
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.orm import Session, selectinload
 
 from app.db.models import Inspection, ReportDraft, Transcription
-from app.db.models import Inspection, ReportDraft, Transcription, ReportStatusLog
+
+COMPANY_LOGO_PATH = "app/static/reports/global_supplier_logo.png"
+
+COMPANY_INFO = {
+    "name": "GLOBAL SUPPLIER S&P SAC.",
+    "ruc": "20477372571",
+    "address": "Av. José María Eguren Sur 266 Int. 2 Urb. Palermo - Trujillo-Perú.",
+    "phones": "Tel: 044-652077 cel. 923281042 - 965382425",
+    "email": "ventas@globalsuppliersp.com",
+    "website": "www.globalsuppliersp.com",
+    "logo_path": COMPANY_LOGO_PATH,
+}
 
 SECTION_MARKERS = [
+    "1. IDENTIFICACIÓN DEL EQUIPO INSPECCIONADO",
+    "2. OBJETIVO",
+    "3. ALCANCE",
+    "4. PROTOCOLO EMPLEADO",
+    "5. FRECUENCIA DE INSPECCIÓN",
+    "6. NORMAS Y CODIGOS DE REFERENCIA",
+    "6. NORMAS Y CÓDIGOS DE REFERENCIA",
+    "7. EQUIPOS DE INSPECCIÓN EMPELADOS",
+    "7. EQUIPOS DE INSPECCIÓN EMPLEADOS",
+    "8. CRITERIOS DE INSPECCIÓN",
+    "9. RESULTADOS DE LA INSPECCIÓN",
+    "10. CONCLUSIONES",
     "1. RESUMEN EJECUTIVO",
     "2. CONTEXTO DE LA INSPECCIÓN",
     "3. HALLAZGOS PRINCIPALES",
@@ -48,6 +72,98 @@ ISSUE_KEYWORDS = (
     "observado",
 )
 
+MONTHS_ES = {
+    1: "ENERO",
+    2: "FEBRERO",
+    3: "MARZO",
+    4: "ABRIL",
+    5: "MAYO",
+    6: "JUNIO",
+    7: "JULIO",
+    8: "AGOSTO",
+    9: "SEPTIEMBRE",
+    10: "OCTUBRE",
+    11: "NOVIEMBRE",
+    12: "DICIEMBRE",
+}
+
+STANDARD_REFERENCES = [
+    "B&PV ASME Code 2004. Sec. V. Art. 9. – Visual Testing.",
+    "AWS D1.1/D1.1M: 2008 Structural Welding Code Steel.",
+    "ASTM E 709 – 01 Standard Practice for Magnetic Particle Examination.",
+    "ASTM E 1444 – 01 Standard Guide for Magnetic Particle Examination.",
+    "B&PV ASME Code 2004. Sec. V. Art. 7. – Magnetic Testing.",
+]
+
+DEFAULT_MT_ITEMS = [
+    "Equipo: Yugo Magnético Y7 AC/DC",
+    "Serie: F076242 /43560",
+    "Equipo: ----",
+    "Modelo: P/F",
+    "Serie:",
+    "Técnica: Baño de Partículas magnéticas marca MAGNAFLUX.",
+]
+
+DEFAULT_VT_ITEMS = [
+    "Instrumentos de medición:",
+    "- Vernier",
+    "- Wincha métrica",
+    "- Gage",
+    "- Cámara fotográfica digital",
+    "- Lupa",
+    "- Linterna",
+]
+
+RESULT_COMPONENT_ORDER = {
+    "chasis": 1,
+    "puntas_de_ejes": 2,
+    "puntas_ejes": 2,
+    "balancines": 3,
+    "balancines_de_muelles": 3,
+    "soportes_de_muelles": 4,
+    "cartelas_de_soportes_de_muelles": 4,
+    "hojas_de_muelles": 5,
+    "bolsas_de_aire": 5,
+    "hojas_de_muelles_bolsas_de_aire": 5,
+    "templadores": 6,
+    "plancha_de_king_pin": 7,
+    "plancha_king_pin": 7,
+    "king_pin": 8,
+    "ejes": 9,
+    "munones": 9,
+    "muñones": 9,
+    "ejes_zona_de_punta_o_munones": 9,
+    "ejes_zona_de_punta_o_muñones": 9,
+}
+
+SEMIRREMOLQUE_FREQUENCY_ROWS = [
+    {"component": "Chasis", "method": "VT", "frequency": "Cada 48,000 Km", "percentage": "100%"},
+    {"component": "Balancines de muelles", "method": "VT & MT", "frequency": "Cada 48,000 Km", "percentage": "100%"},
+    {"component": "Cartelas de soportes de muelles", "method": "VT & MT", "frequency": "Cada 48,000 Km", "percentage": "100%"},
+    {"component": "Templadores", "method": "VT", "frequency": "Cada 48,000 Km", "percentage": "100%"},
+    {"component": "King-pin", "method": "VT & MT", "frequency": "Cada 48,000 Km", "percentage": "100%"},
+    {"component": "Plancha de King-pin", "method": "VT & MT", "frequency": "Cada 48,000 Km", "percentage": "100%"},
+    {"component": "Ejes, zona de punta o muñones", "method": "VT & MT", "frequency": "Cada 48,000 Km", "percentage": "100%"},
+]
+
+DEFAULT_CRITERIA = {
+    "accepted": (
+        "Estructura del chasis, puntas de ejes, planchas de King pin y King pin en buenas "
+        "condiciones estructurales, no presenta discontinuidades, desgaste ni deformaciones."
+    ),
+    "rejected": (
+        "Estructura del chasis, puntas de ejes, planchas de King pin y King pin se encuentran "
+        "en malas condiciones estructurales."
+    ),
+    "rejected_items": [
+        "Chasis y/o componentes presentan deformaciones, desgaste y discontinuidades en su estructura.",
+        "Puntas de ejes presentan desgaste, deformación, discontinuidades y/o presencia de soldadura por reparaciones (no se aceptan reparaciones).",
+        "Plancha de King pin presenta desgaste, deformación y/o discontinuidades.",
+        "King pin presenta discontinuidades, deformaciones, presencia de soldadura y/o pérdida del diámetro (∅ nominal 50.8 mm, ∅ de retiro 49 mm).",
+    ],
+    "retirement": "Si el equipo tiene 10 años de antigüedad o 800,000 Km de recorrido.",
+}
+
 
 def _safe_text(value: Any, default: str = "No registrado") -> str:
     if value is None:
@@ -63,6 +179,25 @@ def _format_date(value: Any, default: str = "No registrada") -> str:
         return value.strftime("%d/%m/%Y")
     text = str(value).strip()
     return text if text else default
+
+
+def _format_date_long(value: Any, default: str = "No registrada") -> str:
+    if value is None:
+        return default
+    if not hasattr(value, "day"):
+        return _safe_text(value, default)
+
+    day = value.day
+    month = MONTHS_ES.get(value.month, "")
+    year = value.year
+    month_title = month.capitalize() if month else "Mes"
+    return f"{day:02d} de {month_title} del {year}"
+
+
+def _month_upper(value: Any) -> str:
+    if value is None or not hasattr(value, "month"):
+        return "MES"
+    return MONTHS_ES.get(value.month, "MES")
 
 
 def _normalize_key(value: str | None) -> str:
@@ -150,6 +285,7 @@ def _has_issue_text(value: str | None) -> bool:
 
 def _get_field_map(inspection: Inspection) -> dict[str, str]:
     data: dict[str, str] = {}
+
     for field in getattr(inspection, "fields", []) or []:
         value = _field_best_value(field, default="")
         if not value:
@@ -175,129 +311,273 @@ def _find_field(field_map: dict[str, str], aliases: list[str], default: str = "N
     return default
 
 
-def _build_intro_paragraph(
-    inspection: Inspection,
-    methods: list[str],
-    evidence_count: int,
-    transcription_count: int,
-) -> str:
-    requested_by = _safe_text(inspection.requested_by, inspection.client_name)
-    equipment_type = _safe_text(inspection.equipment_type)
-    code = _safe_text(inspection.code)
-    inspection_type = _safe_text(inspection.inspection_type)
-    inspection_date = _format_date(inspection.inspection_date)
-    location = _safe_text(inspection.location, "ubicación no registrada")
+def _extract_client_code(requested_by: str) -> str:
+    text = _safe_text(requested_by, "CLIENTE")
+    direct = re.search(r"\b([A-Z]{2,6})\b", text.upper())
+    if direct:
+        return direct.group(1)
 
-    return (
-        f"Por solicitud de {requested_by}, se realizó la inspección {inspection_type.lower()} del equipo "
-        f"{equipment_type} identificado con código {code}, con fecha {inspection_date} en {location}. "
-        f"El informe consolida datos estructurados, {evidence_count} evidencia(s) registrada(s), "
-        f"{transcription_count} transcripción(es) y los métodos aplicados: {', '.join(methods)}."
+    tokens = re.findall(r"[A-ZÁÉÍÓÚÑa-záéíóúñ]+", text)
+    initials = "".join(token[0] for token in tokens[:4]).upper()
+    return initials or "CLI"
+
+
+def _extract_sequence_from_code(code: str) -> str:
+    text = _safe_text(code, "")
+    matches = re.findall(r"(\d+)", text)
+    if not matches:
+        return "001"
+    return matches[-1].zfill(3)[-3:]
+
+
+def _equipment_abbreviation(equipment_type: str) -> str:
+    normalized = _normalize_key(equipment_type)
+    if "semirremolque" in normalized:
+        return "SR"
+    if "remolque" in normalized:
+        return "RM"
+    if "tolva" in normalized:
+        return "TV"
+    return "EQ"
+
+
+def _build_report_code_display(inspection: Inspection, field_map: dict[str, str]) -> str:
+    inspection_date = getattr(inspection, "inspection_date", None)
+    month = _month_upper(inspection_date)
+    year = str(getattr(inspection_date, "year", datetime.now().year))
+
+    report_sequence = _find_field(
+        field_map,
+        ["numero_informe", "correlativo_informe", "report_sequence", "nro_informe", "numero_reporte"],
+        default="",
     )
+    if not report_sequence:
+        report_sequence = _extract_sequence_from_code(_safe_text(getattr(inspection, "code", None), ""))
+
+    requested_by = _safe_text(getattr(inspection, "requested_by", None), _safe_text(getattr(inspection, "client_name", None)))
+    client_code = _find_field(field_map, ["sigla_cliente", "client_code"], default="")
+    if not client_code:
+        client_code = _extract_client_code(requested_by)
+
+    equipment_code = _equipment_abbreviation(_safe_text(getattr(inspection, "equipment_type", None)))
+    return f"GS – {month} {year} – {str(report_sequence).zfill(3)} – {equipment_code} - {client_code}"
 
 
-def _build_objective(
-    inspection: Inspection,
-    extracted_summary: str,
-) -> str:
-    if extracted_summary:
-        return extracted_summary
-
-    return (
-        f"Determinar el estado documentado del equipo {inspection.equipment_type} mediante la revisión "
-        f"de datos estructurados, validación OCR, evidencias registradas y observaciones del inspector, "
-        f"con la finalidad de emitir un informe técnico uniforme y verificable."
-    )
-
-
-def _build_scope(inspection: Inspection, evidences: list[Any], transcriptions: list[Any]) -> list[str]:
-    items = [
-        f"Revisión de los datos capturados para la inspección {inspection.code}.",
-        "Verificación de campos críticos y consistencia entre valor manual, OCR y valor final.",
-        "Organización del informe bajo una plantilla estructurada para exportación documental.",
-    ]
-
-    if evidences:
-        items.append("Incorporación de evidencias fotográficas o documentales asociadas a la inspección.")
-    if transcriptions:
-        items.append("Incorporación de observaciones transcritas vinculadas al trabajo de campo.")
-
-    return items
-
-
-def _build_protocol(inspection: Inspection, evidences: list[Any], transcriptions: list[Any]) -> str:
-    parts = [
-        f"La inspección fue registrada bajo el tipo '{inspection.inspection_type}'.",
-        "La información fue consolidada a partir del formulario estructurado de inspección.",
-    ]
-    if evidences:
-        parts.append("Se consideraron evidencias asociadas al registro para sustento documental.")
-    if transcriptions:
-        parts.append("Se consideraron observaciones obtenidas desde transcripción de audio.")
-    return " ".join(parts)
-
-
-def _build_standards() -> list[str]:
-    return [
-        "Plantilla estandarizada de inspección técnica del sistema.",
-        "Validación cruzada entre captura manual, OCR y revisión final.",
-        "Criterios internos de consistencia documental y trazabilidad del informe.",
-    ]
-
-
-def _build_methods(evidences: list[Any], transcriptions: list[Any]) -> list[str]:
+def _build_methods(evidences: list[Any], transcriptions: list[Any], full_text: str = "") -> list[str]:
     methods = ["INSPECCIÓN VISUAL (VT)"]
+
+    upper_text = (full_text or "").upper()
+    if "PARTICULAS MAGNETICAS" in upper_text or "PARTÍCULAS MAGNÉTICAS" in upper_text or "(MT)" in upper_text:
+        methods.append("PARTÍCULAS MAGNÉTICAS (MT)")
+
+    has_transcriptions = any(
+        bool((getattr(item, "final_text", None) or getattr(item, "raw_text", None) or "").strip())
+        for item in transcriptions or []
+    )
+    if has_transcriptions:
+        methods.append("TRANSCRIPCIÓN DE OBSERVACIONES")
 
     has_ocr = any(
         bool(getattr(item, "ocr_processed", False) or getattr(item, "ocr_extracted_text", None))
         for item in evidences or []
     )
-    has_images = any(
-        "image" in _safe_text(getattr(item, "file_type", None), "").lower()
-        or _safe_text(getattr(item, "file_type", None), "").lower() in {"jpg", "jpeg", "png", "webp"}
-        for item in evidences or []
-    )
-    has_transcriptions = any(
-        bool((getattr(item, "final_text", None) or getattr(item, "raw_text", None) or "").strip())
-        for item in transcriptions or []
-    )
-
-    if has_images:
-        methods.append("REGISTRO FOTOGRÁFICO")
-    if has_ocr:
+    if has_ocr and "VALIDACIÓN DOCUMENTAL (OCR)" not in methods:
         methods.append("VALIDACIÓN DOCUMENTAL (OCR)")
-    if has_transcriptions:
-        methods.append("TRANSCRIPCIÓN DE OBSERVACIONES")
 
-    return methods
+    deduped: list[str] = []
+    for method in methods:
+        if method not in deduped:
+            deduped.append(method)
+    return deduped
 
 
-def _build_inspection_equipment(evidences: list[Any], transcriptions: list[Any]) -> dict[str, list[str]]:
-    mt_items = [
-        "Formulario digital de inspección",
-        "Motor de validación de campos críticos",
+def _build_intro_paragraph(
+    inspection: Inspection,
+    plate: str,
+    methods: list[str],
+) -> str:
+    requested_by = _safe_text(getattr(inspection, "requested_by", None), _safe_text(getattr(inspection, "client_name", None)))
+    equipment_type = _safe_text(getattr(inspection, "equipment_type", None))
+    inspection_type = _safe_text(getattr(inspection, "inspection_type", None)).lower()
+    methods_text = " / ".join(methods)
+
+    plate_text = f" identificado con placa {plate}" if plate != "No registrado" else ""
+    return (
+        f"A solicitud de la empresa {requested_by}, se ha realizado la inspección {inspection_type} "
+        f"del equipo {equipment_type}{plate_text}, empleando los métodos {methods_text}."
+    )
+
+
+def _build_objective(inspection: Inspection, extracted_summary: str) -> str:
+    if extracted_summary:
+        return extracted_summary
+
+    equipment_type = _safe_text(getattr(inspection, "equipment_type", None))
+    normalized = _normalize_key(equipment_type)
+
+    if "semirremolque" in normalized:
+        return (
+            "Determinar la integridad estructural de los componentes del semirremolque "
+            "(chasis, puntas de ejes, plancha de King pin y King pin), mediante inspección "
+            "por ensayos no destructivos, con la finalidad de asegurar la confiabilidad del "
+            "equipo para una mejor prestación del servicio y así evitar accidentes que "
+            "atenten contra la seguridad y el medio ambiente."
+        )
+
+    return (
+        f"Determinar el estado documentado del equipo {equipment_type} mediante la revisión "
+        "de datos estructurados, evidencias registradas y observaciones del inspector, con la "
+        "finalidad de emitir un informe técnico uniforme, verificable y trazable."
+    )
+
+
+def _build_scope(
+    inspection: Inspection,
+    methods: list[str],
+    evidences: list[Any],
+    transcriptions: list[Any],
+) -> list[str]:
+    equipment_type = _safe_text(getattr(inspection, "equipment_type", None))
+    normalized = _normalize_key(equipment_type)
+
+    items: list[str] = []
+
+    if "semirremolque" in normalized:
+        items.append("Inspección visual a toda la estructura del semirremolque para determinar la condición superficial del equipo.")
+        if any("MAGNÉTICAS" in method or "(MT)" in method for method in methods):
+            items.append("Inspección por partículas magnéticas de las puntas de los ejes, balancines, soportes de muelles, plancha King pin y King pin.")
+    else:
+        items.append(f"Inspección visual y documental del equipo {equipment_type}.")
+        items.append("Verificación del estado general de los componentes críticos y sus uniones estructurales.")
+
+    if evidences:
+        items.append("Registro fotográfico y documental de las zonas inspeccionadas.")
+    if transcriptions:
+        items.append("Incorporación de observaciones transcritas asociadas al proceso de inspección.")
+
+    return items
+
+
+def _build_protocol(
+    inspection: Inspection,
+    extracted_protocol: str,
+) -> str:
+    if extracted_protocol:
+        return extracted_protocol
+
+    requested_by = _safe_text(getattr(inspection, "requested_by", None), _safe_text(getattr(inspection, "client_name", None)))
+    return (
+        f"La presente inspección fue realizada de acuerdo con los criterios técnicos aplicables al servicio solicitado por "
+        f"{requested_by}, bajo una metodología estructurada de inspección visual, registro documental, consolidación "
+        "de hallazgos y emisión formal de resultados."
+    )
+
+
+def _build_frequency_rows(inspection: Inspection) -> list[dict[str, str]]:
+    equipment_type = _safe_text(getattr(inspection, "equipment_type", None))
+    normalized = _normalize_key(equipment_type)
+
+    if "semirremolque" in normalized:
+        return SEMIRREMOLQUE_FREQUENCY_ROWS.copy()
+
+    return [
+        {"component": equipment_type, "method": "VT", "frequency": "Según criticidad operativa", "percentage": "100%"},
     ]
-    vt_items = [
-        "Cámara o dispositivo de captura",
-        "Registro fotográfico digital",
-        "Revisión visual del inspector",
-    ]
+
+
+def _build_frequency_note(
+    inspection: Inspection,
+    field_map: dict[str, str],
+    extracted_frequency: str,
+) -> str:
+    if extracted_frequency:
+        return extracted_frequency
+
+    equipment_type = _safe_text(getattr(inspection, "equipment_type", None))
+    model = _find_field(field_map, ["modelo", "model", "placa", "plate"], default="No registrado")
+    mileage = _find_field(field_map, ["kilometraje", "mileage", "odometro", "odómetro"], default="No registrado")
+    age = _find_field(field_map, ["antiguedad", "antigüedad", "age"], default="No registrada")
+
+    normalized = _normalize_key(equipment_type)
+    if "semirremolque" in normalized:
+        return (
+            f"Para el modelo {model}, se recomienda mantener una frecuencia de inspección estructural "
+            "cada 48,000 Km para los componentes críticos del semirremolque y no exceder un año entre "
+            "inspecciones integrales. Esta periodicidad debe revisarse considerando el kilometraje actual "
+            f"({mileage}) y la antigüedad registrada ({age})."
+        )
+
+    return (
+        f"La frecuencia de inspección del equipo {equipment_type} debe definirse según condición operativa, "
+        f"criticidad del servicio, historial de uso y registros disponibles del modelo {model}."
+    )
+
+
+def _build_standards(extracted_standards: str) -> list[str]:
+    if extracted_standards:
+        lines = [line.strip("•- \t") for line in extracted_standards.splitlines() if line.strip()]
+        return lines or STANDARD_REFERENCES.copy()
+    return STANDARD_REFERENCES.copy()
+
+
+def _build_inspection_equipment(
+    evidences: list[Any],
+    transcriptions: list[Any],
+    extracted_equipment: str,
+) -> dict[str, list[str]]:
+    if extracted_equipment:
+        lines = [line.strip() for line in extracted_equipment.splitlines() if line.strip()]
+        midpoint = max(1, len(lines) // 2)
+        return {
+            "mt_title": "Magnetic Testing (MT)",
+            "vt_title": "Visual Testing (VT)",
+            "mt": lines[:midpoint],
+            "vt": lines[midpoint:],
+        }
+
+    mt_items = DEFAULT_MT_ITEMS.copy()
+    vt_items = DEFAULT_VT_ITEMS.copy()
 
     if any(bool(getattr(item, "ocr_processed", False)) for item in evidences or []):
-        mt_items.append("Módulo OCR para lectura documental")
-
+        vt_items.append("- Soporte de validación OCR")
     if transcriptions:
-        vt_items.append("Módulo de transcripción de audio")
+        vt_items.append("- Registro de observaciones transcritas")
 
-    return {"mt": mt_items, "vt": vt_items}
-
-
-def _build_criteria() -> dict[str, str]:
     return {
-        "accepted": "Registro completo, consistente y sin discrepancias relevantes en los campos críticos o evidencias revisadas.",
-        "rejected": "Registro con inconsistencias documentales, observaciones críticas o evidencia insuficiente para validación.",
-        "retirement": "La emisión final del informe debe quedar supeditada a la validación técnica y documental del responsable.",
+        "mt_title": "Magnetic Testing (MT)",
+        "vt_title": "Visual Testing (VT)",
+        "mt": mt_items,
+        "vt": vt_items,
     }
+
+
+def _build_criteria(extracted_criteria: str) -> dict[str, Any]:
+    if extracted_criteria:
+        lines = [line.strip() for line in extracted_criteria.splitlines() if line.strip()]
+        accepted = ""
+        rejected = ""
+        rejected_items: list[str] = []
+        retirement = ""
+
+        for line in lines:
+            upper = line.upper()
+            if "ACEPTADO" in upper and not accepted:
+                accepted = re.sub(r"^\**\s*ACEPTADO\s*:?\s*", "", line, flags=re.IGNORECASE).strip()
+            elif "RECHAZADO" in upper and not rejected:
+                rejected = re.sub(r"^\**\s*RECHAZADO\s*:?\s*", "", line, flags=re.IGNORECASE).strip()
+            elif "RETIRO" in upper:
+                retirement = re.sub(r"^\**\s*RETIRO DE LA OPERACION\s*:?\s*", "", line, flags=re.IGNORECASE).strip()
+            else:
+                rejected_items.append(line.strip("-• "))
+
+        return {
+            "accepted": accepted or DEFAULT_CRITERIA["accepted"],
+            "rejected": rejected or DEFAULT_CRITERIA["rejected"],
+            "rejected_items": rejected_items or DEFAULT_CRITERIA["rejected_items"],
+            "retirement": retirement or DEFAULT_CRITERIA["retirement"],
+        }
+
+    return DEFAULT_CRITERIA.copy()
 
 
 def _build_findings_from_fields(fields: list[Any]) -> str:
@@ -324,7 +604,7 @@ def _build_findings_from_fields(fields: list[Any]) -> str:
         else:
             info_lines.append(line)
 
-    selected = issue_lines if issue_lines else info_lines[:8]
+    selected = issue_lines if issue_lines else info_lines[:10]
     return "\n".join(selected) if selected else "No se registraron hallazgos específicos."
 
 
@@ -389,14 +669,12 @@ def _build_voice_summary_from_transcriptions(transcriptions: list[Transcription]
             continue
 
         confidence = getattr(item, "confidence", None)
-        confidence_text = ""
-        if confidence is not None:
-            confidence_text = f" | confianza={confidence}"
+        confidence_text = f" | confianza={confidence}" if confidence is not None else ""
 
         blocks.append(
             "\n".join(
                 [
-                    f"Transcripción {idx} | idioma={_safe_text(item.language, 'No registrado')} | modelo={_safe_text(item.model_name, 'No registrado')}{confidence_text}",
+                    f"Transcripción {idx} | idioma={_safe_text(getattr(item, 'language', None), 'No registrado')} | modelo={_safe_text(getattr(item, 'model_name', None), 'No registrado')}{confidence_text}",
                     text,
                 ]
             )
@@ -411,12 +689,12 @@ def _build_recommendations_from_fields(
     transcriptions: list[Any],
 ) -> str:
     mismatches = sum(
-        1 for field in fields or []
+        1
+        for field in fields or []
         if _safe_text(getattr(field, "validation_status", None), "pending").lower() == "mismatch"
     )
     issue_values = sum(
-        1 for field in fields or []
-        if _has_issue_text(_field_best_value(field, default=""))
+        1 for field in fields or [] if _has_issue_text(_field_best_value(field, default=""))
     )
 
     recommendations: list[str] = []
@@ -437,39 +715,50 @@ def _build_recommendations_from_fields(
 
 def _build_conclusion_from_state(
     inspection: Inspection,
+    plate: str,
     fields: list[Any],
     evidences: list[Any],
     transcriptions: list[Any],
+    general_condition: str,
 ) -> str:
     mismatch_count = sum(
-        1 for field in fields or []
+        1
+        for field in fields or []
         if _safe_text(getattr(field, "validation_status", None), "pending").lower() == "mismatch"
     )
     issue_count = sum(
-        1 for field in fields or []
-        if _has_issue_text(_field_best_value(field, default=""))
+        1 for field in fields or [] if _has_issue_text(_field_best_value(field, default=""))
     )
     evidence_count = len(evidences or [])
     transcription_count = len([item for item in transcriptions or [] if (item.final_text or item.raw_text or "").strip()])
 
+    equipment_type = _safe_text(getattr(inspection, "equipment_type", None))
+    equipment_label = f"{equipment_type} {plate}" if plate != "No registrado" else equipment_type
+
+    if general_condition.upper() == "ACEPTADO":
+        return (
+            f"El equipo {equipment_label} y sus componentes inspeccionados se encuentran en condición "
+            "ACEPTADO para su puesta en operación bajo condiciones normales."
+        )
+
     if issue_count > 0:
         return (
-            f"El informe de la inspección {inspection.code} consolida información estructurada, "
-            f"{evidence_count} evidencia(s) y {transcription_count} transcripción(es). "
-            "Se identificaron observaciones técnicas registradas en los campos del informe, por lo que "
-            "se recomienda validación final del responsable antes de su emisión definitiva."
+            f"El informe de la inspección {equipment_label} consolida {evidence_count} evidencia(s) y "
+            f"{transcription_count} transcripción(es). Se identificaron observaciones técnicas que requieren "
+            "validación final del responsable antes de su emisión definitiva."
         )
 
     if mismatch_count > 0:
         return (
-            f"El informe de la inspección {inspection.code} fue construido con datos estructurados y sustento documental, "
-            "pero presenta discrepancias OCR en campos críticos, por lo que requiere revisión humana antes de su aprobación."
+            f"El informe de la inspección {equipment_label} fue construido con datos estructurados y sustento "
+            "documental, pero presenta discrepancias OCR en campos críticos, por lo que requiere revisión humana "
+            "antes de su aprobación."
         )
 
     return (
-        f"El informe de la inspección {inspection.code} fue construido con la información disponible en el sistema, "
-        f"incluyendo {evidence_count} evidencia(s) y {transcription_count} transcripción(es). "
-        "No se identificaron discrepancias críticas en los campos comparados, quedando sujeto a validación técnica final."
+        f"El informe de la inspección {equipment_label} fue construido con la información disponible en el sistema, "
+        f"incluyendo {evidence_count} evidencia(s) y {transcription_count} transcripción(es), quedando sujeto a "
+        "validación técnica final."
     )
 
 
@@ -482,6 +771,7 @@ def _derive_group_condition(group_fields: list[Any]) -> str:
         "rechazado": "Rechazado",
         "observado": "Observado",
         "pendiente": "Pendiente",
+        "registrado": "Registrado",
     }
 
     for field in group_fields:
@@ -520,6 +810,8 @@ def _derive_group_action(condition: str) -> str:
         return "Completar revisión técnica"
     if normalized == "aceptado":
         return "--"
+    if normalized == "registrado":
+        return "Validar en revisión final"
     return "Validar en revisión final"
 
 
@@ -547,10 +839,40 @@ def _build_group_observation(group_fields: list[Any]) -> str:
             normal_lines.append(line)
 
     selected = issue_lines[:2] if issue_lines else normal_lines[:2]
-    return " | ".join(selected) if selected else "Sin observaciones detalladas."
+    return " | ".join(selected) if selected else "--"
 
 
-def _build_results_rows(inspection: Inspection, fields: list[Any]) -> list[dict[str, str]]:
+def _humanize_component_name(group_name: str) -> str:
+    normalized = _normalize_key(group_name)
+    custom = {
+        "chasis": "Chasis",
+        "puntas_de_ejes": "Puntas de Ejes",
+        "puntas_ejes": "Puntas de Ejes",
+        "balancines": "Balancines",
+        "balancines_de_muelles": "Balancines",
+        "soportes_de_muelles": "Soporte de muelles",
+        "cartelas_de_soportes_de_muelles": "Soporte de muelles",
+        "hojas_de_muelles": "Hojas de muelles/Bolsas de aire",
+        "bolsas_de_aire": "Hojas de muelles/Bolsas de aire",
+        "hojas_de_muelles_bolsas_de_aire": "Hojas de muelles/Bolsas de aire",
+        "templadores": "Templadores",
+        "plancha_de_king_pin": "Plancha de King pin",
+        "plancha_king_pin": "Plancha de King pin",
+        "king_pin": "King pin",
+        "ejes": "Ejes",
+        "munones": "Muñones",
+        "muñones": "Muñones",
+        "ejes_zona_de_punta_o_munones": "Ejes, zona de punta o muñones",
+        "ejes_zona_de_punta_o_muñones": "Ejes, zona de punta o muñones",
+    }
+    return custom.get(normalized, _humanize_key(group_name))
+
+
+def _build_results_rows(
+    inspection: Inspection,
+    fields: list[Any],
+    general_condition: str,
+) -> list[dict[str, str]]:
     groups: dict[str, list[Any]] = defaultdict(list)
     ignored_groups = {
         "general",
@@ -572,12 +894,19 @@ def _build_results_rows(inspection: Inspection, fields: list[Any]) -> list[dict[
     rows: list[dict[str, str]] = []
 
     if groups:
-        for group_name, group_fields in groups.items():
+        ordered_groups = sorted(
+            groups.items(),
+            key=lambda item: (
+                RESULT_COMPONENT_ORDER.get(_normalize_key(item[0]), 999),
+                _humanize_component_name(item[0]),
+            ),
+        )
+        for group_name, group_fields in ordered_groups:
             condition = _derive_group_condition(group_fields)
             rows.append(
                 {
-                    "equipo": inspection.equipment_type,
-                    "componente": _humanize_key(group_name),
+                    "equipo": _safe_text(getattr(inspection, "equipment_type", None)),
+                    "componente": _humanize_component_name(group_name),
                     "condicion": condition,
                     "observaciones": _build_group_observation(group_fields),
                     "accion": _derive_group_action(condition),
@@ -585,18 +914,36 @@ def _build_results_rows(inspection: Inspection, fields: list[Any]) -> list[dict[
             )
 
     if not rows:
-        fallback_condition = _derive_group_condition(fields or [])
-        rows.append(
-            {
-                "equipo": inspection.equipment_type,
-                "componente": "Estructura general",
-                "condicion": fallback_condition,
-                "observaciones": _build_group_observation(fields or []),
-                "accion": _derive_group_action(fallback_condition),
-            }
-        )
+        normalized_condition = general_condition.upper()
+        if normalized_condition == "ACEPTADO":
+            default_condition = "Aceptado"
+        elif normalized_condition in {"OBSERVADO", "RECHAZADO"}:
+            default_condition = "Observado"
+        else:
+            default_condition = "Registrado"
 
-    return rows[:12]
+        default_components = [
+            "Chasis",
+            "Puntas de Ejes",
+            "Balancines",
+            "Soporte de muelles",
+            "Hojas de muelles/Bolsas de aire",
+            "Plancha de King pin",
+            "King pin",
+        ]
+
+        for component in default_components:
+            rows.append(
+                {
+                    "equipo": _safe_text(getattr(inspection, "equipment_type", None)),
+                    "componente": component,
+                    "condicion": default_condition,
+                    "observaciones": "--",
+                    "accion": "--" if default_condition == "Aceptado" else "Validar en revisión final",
+                }
+            )
+
+    return rows
 
 
 def _build_evidences(
@@ -619,12 +966,17 @@ def _build_evidences(
             transcribed_block = " | ".join(linked_transcriptions[:2])
             ocr_text = f"{ocr_text}\n{transcribed_block}".strip() if ocr_text else transcribed_block
 
+        category = _safe_text(getattr(evidence, "evidence_category", None), "Evidencia general")
+        caption = _safe_text(getattr(evidence, "caption", None), f"Foto {idx}")
+        display_title = caption if caption != f"Foto {idx}" else f"Foto {idx}. {category}"
+
         evidences.append(
             {
                 "index": idx,
                 "path": getattr(evidence, "file_path", None),
-                "category": _safe_text(getattr(evidence, "evidence_category", None), "Evidencia general"),
-                "caption": _safe_text(getattr(evidence, "caption", None), f"Foto {idx}"),
+                "category": category,
+                "caption": caption,
+                "display_title": display_title,
                 "ocr_text": ocr_text,
                 "file_type": _safe_text(getattr(evidence, "file_type", None), "No registrado"),
                 "ocr_processed": bool(getattr(evidence, "ocr_processed", False)),
@@ -638,6 +990,7 @@ def _build_evidences(
                 "path": None,
                 "category": "Evidencia pendiente",
                 "caption": "Espacio reservado para evidencia fotográfica",
+                "display_title": "Foto 1. Espacio reservado para evidencia fotográfica",
                 "ocr_text": "",
                 "file_type": "No registrado",
                 "ocr_processed": False,
@@ -661,11 +1014,19 @@ def _infer_general_condition(field_map: dict[str, str], fields: list[Any]) -> st
         default="",
     )
     if explicit:
+        normalized = _normalize_key(explicit)
+        if normalized in {"aceptado", "aprobado", "conforme", "ok"}:
+            return "ACEPTADO"
+        if normalized in {"rechazado"}:
+            return "RECHAZADO"
+        if normalized in {"observado"}:
+            return "OBSERVADO"
         return explicit.upper()
 
     issue_count = sum(1 for field in fields or [] if _has_issue_text(_field_best_value(field, default="")))
     mismatch_count = sum(
-        1 for field in fields or []
+        1
+        for field in fields or []
         if _safe_text(getattr(field, "validation_status", None), "pending").lower() == "mismatch"
     )
 
@@ -707,25 +1068,22 @@ def build_company_report_context(db: Session, draft_id: int) -> dict[str, Any]:
     field_map = _get_field_map(inspection)
     full_text = _draft_text(draft)
 
-    extracted_summary = _extract_section(full_text, ["1. RESUMEN EJECUTIVO"], "")
-    extracted_context = _extract_section(
-        full_text,
-        ["2. CONTEXTO DE LA INSPECCIÓN", "1. DATOS GENERALES"],
-        "",
-    )
+    extracted_summary = _extract_section(full_text, ["2. OBJETIVO", "1. RESUMEN EJECUTIVO"], "")
+    extracted_scope = _extract_section(full_text, ["3. ALCANCE"], "")
+    extracted_protocol = _extract_section(full_text, ["4. PROTOCOLO EMPLEADO"], "")
+    extracted_frequency = _extract_section(full_text, ["5. FRECUENCIA DE INSPECCIÓN"], "")
+    extracted_standards = _extract_section(full_text, ["6. NORMAS Y CÓDIGOS DE REFERENCIA", "6. NORMAS Y CODIGOS DE REFERENCIA"], "")
+    extracted_equipment = _extract_section(full_text, ["7. EQUIPOS DE INSPECCIÓN EMPLEADOS", "7. EQUIPOS DE INSPECCIÓN EMPELADOS"], "")
+    extracted_criteria = _extract_section(full_text, ["8. CRITERIOS DE INSPECCIÓN"], "")
     extracted_findings = _extract_section(
         full_text,
-        ["3. HALLAZGOS PRINCIPALES", "2. IDENTIFICACIÓN DE CAMPOS CRÍTICOS", "3. DATOS CAPTURADOS EN INSPECCIÓN"],
+        ["9. RESULTADOS DE LA INSPECCIÓN", "3. HALLAZGOS PRINCIPALES", "2. IDENTIFICACIÓN DE CAMPOS CRÍTICOS", "3. DATOS CAPTURADOS EN INSPECCIÓN"],
         "",
     )
     extracted_ocr = _extract_section(full_text, ["4. VALIDACIÓN OCR", "5. VALIDACIÓN OCR"], "")
     extracted_voice = _extract_section(full_text, ["5. OBSERVACIONES TRANSCRITAS", "6. OBSERVACIONES TRANSCRITAS"], "")
     extracted_recommendations = _extract_section(full_text, ["6. RECOMENDACIONES"], "")
-    extracted_conclusion = _extract_section(
-        full_text,
-        ["7. INFORME REDACTADO", "7. CONCLUSIÓN PRELIMINAR"],
-        "",
-    )
+    extracted_conclusion = _extract_section(full_text, ["10. CONCLUSIONES", "7. INFORME REDACTADO", "7. CONCLUSIÓN PRELIMINAR"], "")
 
     plate = _find_field(field_map, ["placa", "plate", "license_plate", "numero_placa"])
     vin = _find_field(field_map, ["vin", "n_vin", "numero_vin", "no_vin"])
@@ -739,54 +1097,85 @@ def build_company_report_context(db: Session, draft_id: int) -> dict[str, Any]:
     king_pin_brand = _find_field(field_map, ["marca_king_pin", "king_pin_brand"])
     king_pin_model = _find_field(field_map, ["modelo_king_pin", "king_pin_model"])
     king_pin_serial = _find_field(field_map, ["serie_king_pin", "serial_king_pin", "king_pin_serial"])
+    model_display = plate if plate != "No registrado" else _find_field(field_map, ["modelo", "model"], default=_safe_text(getattr(inspection, "code", None)))
 
-    methods = _build_methods(evidences_raw, transcriptions)
+    methods = _build_methods(evidences_raw, transcriptions, full_text)
+    general_condition = _infer_general_condition(field_map, fields)
     evidences = _build_evidences(inspection, transcriptions)
     findings = extracted_findings or _build_findings_from_fields(fields)
     ocr_summary = extracted_ocr or _build_ocr_summary_from_fields(fields)
     voice_summary = extracted_voice or _build_voice_summary_from_transcriptions(transcriptions)
     recommendations = extracted_recommendations or _build_recommendations_from_fields(fields, evidences_raw, transcriptions)
-    conclusion = extracted_conclusion or _build_conclusion_from_state(inspection, fields, evidences_raw, transcriptions)
-
-    requested_by = _safe_text(inspection.requested_by, inspection.client_name)
-    location = _safe_text(inspection.location, "No registrada")
-    intro_paragraph = extracted_context or _build_intro_paragraph(
+    conclusion = extracted_conclusion or _build_conclusion_from_state(
         inspection=inspection,
-        methods=methods,
-        evidence_count=len(evidences_raw),
-        transcription_count=len(transcriptions),
+        plate=plate,
+        fields=fields,
+        evidences=evidences_raw,
+        transcriptions=transcriptions,
+        general_condition=general_condition,
     )
 
-    recent_history = (
-        db.query(ReportStatusLog)
-        .filter(ReportStatusLog.report_draft_id == draft.id)
-        .order_by(ReportStatusLog.created_at.desc(), ReportStatusLog.id.desc())
-        .limit(5)
-        .all()
+    requested_by = _safe_text(getattr(inspection, "requested_by", None), _safe_text(getattr(inspection, "client_name", None)))
+    location = _safe_text(getattr(inspection, "location", None), "No registrada")
+    inspection_date = getattr(inspection, "inspection_date", None)
+    inspection_date_text = _format_date(inspection_date)
+    inspection_date_long = _format_date_long(inspection_date)
+
+    intro_paragraph = _build_intro_paragraph(
+        inspection=inspection,
+        plate=plate,
+        methods=methods,
     )
+
+    frequency_rows = _build_frequency_rows(inspection)
+    frequency_note = _build_frequency_note(inspection, field_map, extracted_frequency)
+    standards = _build_standards(extracted_standards)
+    inspection_equipment = _build_inspection_equipment(evidences_raw, transcriptions, extracted_equipment)
+    criteria = _build_criteria(extracted_criteria)
+    results = _build_results_rows(inspection, fields, general_condition)
+
+    equipment_type = _safe_text(getattr(inspection, "equipment_type", None))
+    equipment_label_prefix = equipment_type.upper()
+    equipment_display = f"{equipment_label_prefix}: {model_display}"
 
     context = {
         "draft": draft,
         "inspection": inspection,
+        "company": COMPANY_INFO,
+        "branding": {
+            "logo_path": COMPANY_INFO["logo_path"],
+            "report_title": "INFORME FINAL",
+            "report_code_display": _build_report_code_display(inspection, field_map),
+            "report_subtitle": "ENSAYOS NO DESTRUCTIVOS (END)",
+            "equipment_display": equipment_display,
+            "divider_lines": True,
+        },
         "header": {
             "report_title": "INFORME FINAL",
-            "report_code": inspection.code,
-            "equipment_display": f"{inspection.equipment_type}: {plate}" if plate != "No registrado" else inspection.equipment_type,
-            "inspection_type": _safe_text(inspection.inspection_type, "No registrado").upper(),
-            "inspection_date": _format_date(inspection.inspection_date),
+            "report_code": _safe_text(getattr(inspection, "code", None)),
+            "report_code_display": _build_report_code_display(inspection, field_map),
+            "report_subtitle": "ENSAYOS NO DESTRUCTIVOS (END)",
+            "equipment_display": equipment_display,
+            "inspection_type": _safe_text(getattr(inspection, "inspection_type", None), "No registrado").upper(),
+            "inspection_date": inspection_date_text,
+            "inspection_date_long": inspection_date_long,
             "methods": methods,
-            "general_condition": _infer_general_condition(field_map, fields),
+            "methods_display": " / ".join(methods),
+            "general_condition": general_condition,
             "location": location.upper(),
+            "logo_path": COMPANY_INFO["logo_path"],
         },
         "technical_info": {
             "requested_by": requested_by,
             "address": _find_field(field_map, ["direccion", "address", "direccion_cliente"], location),
-            "service_responsible": _safe_text(inspection.responsible_inspector, "Inspector no registrado"),
-            "inspection_date_text": _format_date(inspection.inspection_date),
+            "service_responsible": _safe_text(getattr(inspection, "responsible_inspector", None), "Inspector no registrado"),
+            "inspection_date_text": inspection_date_text,
+            "inspection_date_long": inspection_date_long,
             "intro_paragraph": intro_paragraph,
+            "signature_path": "app/static/reports/signatures/firma_responsable.png",
         },
         "identification": {
-            "tipo_equipo": _safe_text(inspection.equipment_type),
+            "tipo_equipo": equipment_type,
             "placa": plate,
             "marca": brand,
             "vin": vin,
@@ -801,37 +1190,35 @@ def build_company_report_context(db: Session, draft_id: int) -> dict[str, Any]:
             "serie_king_pin": king_pin_serial,
         },
         "objective": _build_objective(inspection, extracted_summary),
-        "scope": _build_scope(inspection, evidences_raw, transcriptions),
-        "protocol": _build_protocol(inspection, evidences_raw, transcriptions),
-        "frequency": "La frecuencia de inspección deberá definirse según el tipo de servicio, condición operativa del equipo y política interna de control.",
-        "standards": _build_standards(),
-        "inspection_equipment": _build_inspection_equipment(evidences_raw, transcriptions),
-        "criteria": _build_criteria(),
-        "results": _build_results_rows(inspection, fields),
+        "scope": extracted_scope.splitlines() if extracted_scope else _build_scope(inspection, methods, evidences_raw, transcriptions),
+        "protocol": _build_protocol(inspection, extracted_protocol),
+        "frequency": frequency_note,
+        "frequency_table": frequency_rows,
+        "standards": standards,
+        "inspection_equipment": inspection_equipment,
+        "inspection_equipment_table": inspection_equipment,
+        "criteria": criteria,
+        "results": results,
         "conclusion": conclusion,
         "ocr_summary": ocr_summary,
         "voice_summary": voice_summary,
         "recommendations": recommendations,
         "evidences": evidences,
         "findings": findings,
-    }
-
-    context["traceability"] = {
-        "current_status": getattr(draft, "status", "draft"),
-        "status_updated_at": getattr(draft, "status_updated_at", None),
-        "status_updated_by": getattr(draft, "status_updated_by", None),
-        "last_action": getattr(draft, "last_action", None),
-        "recent_history": [
-            {
-                "action": item.action,
-                "from_status": item.from_status,
-                "to_status": item.to_status,
-                "actor_name": item.actor_name,
-                "notes": item.notes,
-                "created_at": item.created_at,
-            }
-            for item in recent_history
-        ],
+        "footer": {
+            "company_line": f"{COMPANY_INFO['name']} RUC: {COMPANY_INFO['ruc']}",
+            "address_line": COMPANY_INFO["address"],
+            "contact_line": f"{COMPANY_INFO['phones']} | {COMPANY_INFO['email']}",
+            "website_line": COMPANY_INFO["website"],
+            "page_number_template": "{page_number} de {page_count}",
+        },
+        "document_meta": {
+            "show_footer": True,
+            "show_dividers": True,
+            "show_cover_logo": True,
+            "render_results_table": True,
+            "render_evidence_gallery": True,
+        },
     }
 
     return context
