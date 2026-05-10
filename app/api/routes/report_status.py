@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
@@ -15,12 +15,14 @@ from app.services.report_status_service import (
 
 router = APIRouter(prefix="/reports", tags=["report-status"])
 
+
 def get_db():
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+
 
 @router.get("/{report_draft_id}/status", response_model=ReportStatusResponse)
 def get_status(report_draft_id: int, db: Session = Depends(get_db)):
@@ -58,5 +60,9 @@ def update_status(
 
 
 @router.get("/{report_draft_id}/history", response_model=list[ReportStatusLogResponse])
-def get_history(report_draft_id: int, db: Session = Depends(get_db)):
-    return list_report_history(db, report_draft_id)
+def get_history(
+    report_draft_id: int,
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    return list_report_history(db, report_draft_id, limit=limit)

@@ -1,13 +1,11 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
-
+from pydantic import BaseModel, ConfigDict, Field
 
 class ReportStatusUpdateRequest(BaseModel):
     status: str = Field(..., examples=["in_review"])
     notes: str | None = None
-
 
 class ReportStatusResponse(BaseModel):
     report_draft_id: int
@@ -16,6 +14,7 @@ class ReportStatusResponse(BaseModel):
     status_updated_by: int | None = None
     last_action: str | None = None
 
+    model_config = ConfigDict(from_attributes=True)
 
 class ReportStatusLogResponse(BaseModel):
     id: int
@@ -30,5 +29,4 @@ class ReportStatusLogResponse(BaseModel):
     metadata_json: dict[str, Any] | None = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
