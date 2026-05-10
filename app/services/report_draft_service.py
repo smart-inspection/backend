@@ -1,6 +1,10 @@
+import json
+import os
+import re
 from time import perf_counter
-from pathlib import Path
 
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_ollama import ChatOllama
 from sqlalchemy.orm import Session, selectinload
 
 from app.db.models import Inspection, Transcription, ReportDraft
@@ -34,10 +38,14 @@ def _build_general_section(inspection) -> str:
     lines = [
         f"Identificador de inspección: {_pick_attr(inspection, ['inspection_code', 'code', 'identifier', 'inspection_number', 'id'])}",
         f"Cliente: {_pick_attr(inspection, ['client_name', 'customer_name', 'client'])}",
-        f"Equipo: {_pick_attr(inspection, ['equipment_name', 'equipment', 'asset_name'])}",
+        f"Equipo: {_pick_attr(inspection, ['equipment_name', 'equipment', 'asset_name', 'equipment_type'])}",
+        f"Tipo de equipo: {_pick_attr(inspection, ['equipment_type', 'equipment_name', 'equipment'])}",
         f"Fecha de inspección: {_pick_attr(inspection, ['inspection_date', 'date', 'scheduled_at'])}",
-        f"Inspector responsable: {_pick_attr(inspection, ['inspector_name', 'inspector', 'created_by'])}",
+        f"Inspector responsable: {_pick_attr(inspection, ['responsible_inspector', 'inspector_name', 'inspector', 'created_by'])}",
         f"Tipo de servicio: {_pick_attr(inspection, ['service_type', 'inspection_type', 'service'])}",
+        f"Ubicación: {_pick_attr(inspection, ['location'])}",
+        f"Solicitado por: {_pick_attr(inspection, ['requested_by', 'client_name'])}",
+        f"Estado: {_pick_attr(inspection, ['status'])}",
     ]
     return "\n".join(lines)
 
@@ -49,8 +57,10 @@ def _build_fields_section(fields) -> str:
     lines = []
     for field in fields:
         label = _safe(getattr(field, "field_label", None), getattr(field, "field_key", "Campo"))
+        group = _safe(getattr(field, "field_group", None), "Sin grupo")
+        expected_type = _safe(getattr(field, "expected_type", None), "Sin tipo")
         value = _field_value(field)
-        lines.append(f"- {label}: {value}")
+        lines.append(f"- [{group}] {label}: {value} (tipo esperado: {expected_type})")
     return "\n".join(lines)
 
 
@@ -58,7 +68,10 @@ def _build_critical_section(fields) -> str:
     if not fields:
         return "No se identificaron campos críticos."
 
-    critical_keywords = ("vin", "placa", "plate", "serie", "serial", "motor", "chasis")
+    critical_keywords = (
+        "vin", "placa", "plate", "serie", "serial", "motor", "chasis",
+        "codigo", "code", "king", "eje"
+    )
     lines = []
 
     for field in fields:
@@ -78,6 +91,7 @@ def _build_ocr_section(fields) -> str:
     matched = 0
     mismatched = 0
     not_found = 0
+    pending = 0
 
     for field in fields:
         status = _safe(getattr(field, "validation_status", None), "not_evaluated")
@@ -92,6 +106,8 @@ def _build_ocr_section(fields) -> str:
             mismatched += 1
         elif status == "not_found":
             not_found += 1
+        else:
+            pending += 1
 
         lines.append(
             f"- {label}: manual='{manual_value}' | ocr='{ocr_value}' | estado='{status}' | detalle='{message}'"
@@ -101,6 +117,7 @@ def _build_ocr_section(fields) -> str:
         f"Coincidencias: {matched}",
         f"Discrepancias: {mismatched}",
         f"No detectados: {not_found}",
+        f"Pendientes/no evaluados: {pending}",
         "",
         *lines,
     ]
@@ -114,9 +131,14 @@ def _build_transcription_section(transcriptions) -> str:
     blocks = []
     for idx, item in enumerate(transcriptions, start=1):
         text = item.final_text or item.raw_text or "Sin contenido"
+        language = _safe(getattr(item, "language", None))
+        model_name = _safe(getattr(item, "model_name", None))
+        confidence = getattr(item, "confidence", None)
+        confidence_text = f" | confianza={confidence}" if confidence is not None else ""
+
         blocks.append(
             "\n".join([
-                f"Transcripción {idx}:",
+                f"Transcripción {idx} | idioma={language} | modelo={model_name}{confidence_text}",
                 text.strip(),
             ])
         )
@@ -133,7 +155,11 @@ def _build_evidence_section(evidences) -> str:
         file_type = _safe(getattr(item, "file_type", None), "Sin tipo")
         file_path = _safe(getattr(item, "file_path", None), "Sin ruta")
         caption = _safe(getattr(item, "caption", None), "Sin descripción")
-        lines.append(f"- [{category}] {caption} | tipo={file_type} | ruta={file_path}")
+        ocr_text = _safe(getattr(item, "ocr_extracted_text", None), "Sin OCR")
+        ocr_processed = bool(getattr(item, "ocr_processed", False))
+        lines.append(
+            f"- [{category}] {caption} | tipo={file_type} | ruta={file_path} | ocr_procesado={ocr_processed} | ocr='{ocr_text}'"
+        )
     return "\n".join(lines)
 
 
@@ -178,11 +204,14 @@ def _build_snapshot(inspection, transcriptions) -> dict:
                 "field_id": getattr(field, "id", None),
                 "field_key": getattr(field, "field_key", None),
                 "field_label": getattr(field, "field_label", None),
+                "field_group": getattr(field, "field_group", None),
+                "expected_type": getattr(field, "expected_type", None),
                 "manual_value": getattr(field, "manual_value", None),
                 "ocr_value": getattr(field, "ocr_value", None),
                 "final_value": getattr(field, "final_value", None),
                 "validation_status": getattr(field, "validation_status", None),
                 "validation_message": getattr(field, "validation_message", None),
+                "confidence": float(field.confidence) if getattr(field, "confidence", None) is not None else None,
             }
         )
 
@@ -195,6 +224,9 @@ def _build_snapshot(inspection, transcriptions) -> dict:
                 "file_type": getattr(evidence, "file_type", None),
                 "evidence_category": getattr(evidence, "evidence_category", None),
                 "caption": getattr(evidence, "caption", None),
+                "ocr_extracted_text": getattr(evidence, "ocr_extracted_text", None),
+                "ocr_confidence": float(evidence.ocr_confidence) if getattr(evidence, "ocr_confidence", None) is not None else None,
+                "ocr_processed": bool(getattr(evidence, "ocr_processed", False)),
             }
         )
 
@@ -205,9 +237,12 @@ def _build_snapshot(inspection, transcriptions) -> dict:
                 "transcription_id": transcription.id,
                 "source_file_path": transcription.source_file_path,
                 "language": transcription.language,
+                "model_name": transcription.model_name,
                 "raw_text": transcription.raw_text,
                 "final_text": transcription.final_text,
                 "confidence": float(transcription.confidence) if transcription.confidence is not None else None,
+                "processed": bool(getattr(transcription, "processed", False)),
+                "edited_manually": bool(getattr(transcription, "edited_manually", False)),
             }
         )
 
@@ -216,10 +251,14 @@ def _build_snapshot(inspection, transcriptions) -> dict:
         "general_data": {
             "inspection_code": _pick_attr(inspection, ['inspection_code', 'code', 'identifier', 'inspection_number', 'id']),
             "client_name": _pick_attr(inspection, ['client_name', 'customer_name', 'client']),
-            "equipment_name": _pick_attr(inspection, ['equipment_name', 'equipment', 'asset_name']),
+            "equipment_name": _pick_attr(inspection, ['equipment_name', 'equipment', 'asset_name', 'equipment_type']),
+            "equipment_type": _pick_attr(inspection, ['equipment_type', 'equipment_name', 'equipment']),
             "inspection_date": _pick_attr(inspection, ['inspection_date', 'date', 'scheduled_at']),
-            "inspector_name": _pick_attr(inspection, ['inspector_name', 'inspector', 'created_by']),
+            "inspector_name": _pick_attr(inspection, ['responsible_inspector', 'inspector_name', 'inspector', 'created_by']),
             "service_type": _pick_attr(inspection, ['service_type', 'inspection_type', 'service']),
+            "location": _pick_attr(inspection, ['location']),
+            "requested_by": _pick_attr(inspection, ['requested_by', 'client_name']),
+            "status": _pick_attr(inspection, ['status']),
         },
         "fields": fields,
         "evidences": evidences,
@@ -227,37 +266,194 @@ def _build_snapshot(inspection, transcriptions) -> dict:
     }
 
 
+def _strip_code_fences(text: str) -> str:
+    cleaned = text.strip()
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+    return cleaned.strip()
+
+
+def _extract_json_object(text: str) -> str:
+    cleaned = _strip_code_fences(text)
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError("La respuesta del modelo no contiene un objeto JSON válido.")
+    return cleaned[start:end + 1]
+
+
+def _get_llm() -> ChatOllama:
+    model_name = os.getenv("LLAMA_MODEL", "llama3:8b")
+    base_url = os.getenv("LLAMA_BASE_URL", "http://localhost:11434")
+    temperature = float(os.getenv("LLAMA_TEMPERATURE", "0.1"))
+
+    return ChatOllama(
+        model=model_name,
+        base_url=base_url,
+        temperature=temperature,
+    )
+
+
+def _generate_llama_sections(
+    *,
+    template_version: str,
+    snapshot: dict,
+    general_section: str,
+    critical_section: str,
+    fields_section: str,
+    evidence_section: str,
+    ocr_section: str,
+    transcription_section: str,
+    deterministic_conclusion: str,
+) -> dict:
+    llm = _get_llm()
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                (
+                    "Eres un ingeniero redactor de informes de inspección industrial. "
+                    "Redacta en español técnico, claro y profesional. "
+                    "No inventes datos. Si falta información, dilo de forma explícita. "
+                    "Debes responder SOLO con un JSON válido, sin markdown, sin comentarios y sin texto adicional. "
+                    "Las claves obligatorias son: "
+                    "summary, findings, recommendations, conclusion, final_report. "
+                    "Reglas: "
+                    "summary = 1 párrafo ejecutivo; "
+                    "findings = 2 a 5 párrafos o lista redactada con hallazgos principales; "
+                    "recommendations = lista textual con recomendaciones concretas; "
+                    "conclusion = 1 párrafo de cierre; "
+                    "final_report = versión continua y bien redactada del borrador técnico completo, en varios párrafos. "
+                    "No uses encabezados dentro de los valores. "
+                    "Mantén consistencia con inspección, OCR, evidencias y transcripciones."
+                ),
+            ),
+            (
+                "human",
+                (
+                    "Versión de plantilla: {template_version}\n\n"
+                    "DATOS GENERALES:\n{general_section}\n\n"
+                    "CAMPOS CRÍTICOS:\n{critical_section}\n\n"
+                    "DATOS CAPTURADOS:\n{fields_section}\n\n"
+                    "EVIDENCIAS:\n{evidence_section}\n\n"
+                    "VALIDACIÓN OCR:\n{ocr_section}\n\n"
+                    "OBSERVACIONES TRANSCRITAS:\n{transcription_section}\n\n"
+                    "CONCLUSIÓN DETERMINÍSTICA DE APOYO:\n{deterministic_conclusion}\n\n"
+                    "SNAPSHOT JSON:\n{snapshot_json}"
+                ),
+            ),
+        ]
+    )
+
+    response = (prompt | llm).invoke(
+        {
+            "template_version": template_version,
+            "general_section": general_section,
+            "critical_section": critical_section,
+            "fields_section": fields_section,
+            "evidence_section": evidence_section,
+            "ocr_section": ocr_section,
+            "transcription_section": transcription_section,
+            "deterministic_conclusion": deterministic_conclusion,
+            "snapshot_json": json.dumps(snapshot, ensure_ascii=False, indent=2),
+        }
+    )
+
+    raw_content = getattr(response, "content", response)
+    json_text = _extract_json_object(str(raw_content))
+    data = json.loads(json_text)
+
+    required_keys = ["summary", "findings", "recommendations", "conclusion", "final_report"]
+    missing = [key for key in required_keys if key not in data]
+    if missing:
+        raise ValueError(f"Faltan claves obligatorias en la salida de LLaMA: {', '.join(missing)}")
+
+    normalized = {}
+    for key in required_keys:
+        value = data.get(key)
+        if value is None:
+            raise ValueError(f"La clave '{key}' llegó vacía desde LLaMA.")
+        normalized[key] = str(value).strip()
+        if not normalized[key]:
+            raise ValueError(f"La clave '{key}' llegó sin contenido desde LLaMA.")
+
+    return normalized
+
+
 def _render_template(inspection, transcriptions, template_version: str) -> tuple[str, dict]:
     fields = getattr(inspection, "fields", []) or []
     evidences = getattr(inspection, "evidences", []) or []
 
+    general_section = _build_general_section(inspection)
+    critical_section = _build_critical_section(fields)
+    fields_section = _build_fields_section(fields)
+    evidence_section = _build_evidence_section(evidences)
+    ocr_section = _build_ocr_section(fields)
+    transcription_section = _build_transcription_section(transcriptions)
+    deterministic_conclusion = _build_conclusion(fields, transcriptions)
+
+    snapshot = _build_snapshot(inspection, transcriptions)
+
+    ai_sections = _generate_llama_sections(
+        template_version=template_version,
+        snapshot=snapshot,
+        general_section=general_section,
+        critical_section=critical_section,
+        fields_section=fields_section,
+        evidence_section=evidence_section,
+        ocr_section=ocr_section,
+        transcription_section=transcription_section,
+        deterministic_conclusion=deterministic_conclusion,
+    )
+
+    snapshot["llm"] = {
+        "provider": "ollama",
+        "model": os.getenv("LLAMA_MODEL", "llama3:8b"),
+        "base_url": os.getenv("LLAMA_BASE_URL", "http://localhost:11434"),
+        "temperature": float(os.getenv("LLAMA_TEMPERATURE", "0.1")),
+        "sections": ai_sections,
+    }
+
     sections = [
         "INFORME DE INSPECCIÓN - BORRADOR AUTOMÁTICO",
         f"Versión de plantilla: {template_version}",
+        f"Modelo LLM: {snapshot['llm']['model']}",
         "",
-        "1. DATOS GENERALES",
-        _build_general_section(inspection),
+        "1. RESUMEN EJECUTIVO",
+        ai_sections["summary"],
         "",
-        "2. IDENTIFICACIÓN DE CAMPOS CRÍTICOS",
-        _build_critical_section(fields),
+        "2. CONTEXTO DE LA INSPECCIÓN",
+        general_section,
         "",
-        "3. DATOS CAPTURADOS EN INSPECCIÓN",
-        _build_fields_section(fields),
+        "Campos críticos identificados:",
+        critical_section,
         "",
-        "4. EVIDENCIAS REGISTRADAS",
-        _build_evidence_section(evidences),
+        "3. HALLAZGOS PRINCIPALES",
+        ai_sections["findings"],
         "",
-        "5. VALIDACIÓN OCR",
-        _build_ocr_section(fields),
+        "4. VALIDACIÓN OCR",
+        ocr_section,
         "",
-        "6. OBSERVACIONES TRANSCRITAS",
-        _build_transcription_section(transcriptions),
+        "5. OBSERVACIONES TRANSCRITAS",
+        transcription_section,
         "",
-        "7. CONCLUSIÓN PRELIMINAR",
-        _build_conclusion(fields, transcriptions),
+        "6. RECOMENDACIONES",
+        ai_sections["recommendations"],
+        "",
+        "7. INFORME REDACTADO",
+        ai_sections["final_report"],
+        "",
+        "8. CONCLUSIÓN PRELIMINAR",
+        ai_sections["conclusion"],
+        "",
+        "ANEXO TÉCNICO - DATOS CAPTURADOS",
+        fields_section,
+        "",
+        "ANEXO TÉCNICO - EVIDENCIAS",
+        evidence_section,
     ]
 
-    snapshot = _build_snapshot(inspection, transcriptions)
     return "\n".join(sections).strip(), snapshot
 
 
