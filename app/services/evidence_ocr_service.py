@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Evidence
 
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 def _load_image(image_path: Path) -> Image.Image:
     image = Image.open(image_path)

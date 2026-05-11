@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Evidence
 
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 TESSERACT_CONFIG = "--oem 3 --psm 6"
 
