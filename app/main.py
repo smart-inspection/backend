@@ -1,4 +1,7 @@
+from pathlib import Path
+
 from fastapi import FastAPI
+from starlette.staticfiles import StaticFiles
 
 from app.core.config import settings
 from app.db.base import Base
@@ -22,6 +25,8 @@ app = FastAPI(
     debug=settings.debug
 )
 
+Path("uploads").mkdir(parents=True, exist_ok=True)
+
 app.include_router(health_router, prefix=settings.api_v1_prefix)
 app.include_router(inspections_router, prefix=settings.api_v1_prefix)
 app.include_router(inspection_fields_router, prefix=settings.api_v1_prefix)
@@ -32,6 +37,8 @@ app.include_router(report_draft_router, prefix=settings.api_v1_prefix)
 app.include_router(llm_report_router, prefix=settings.api_v1_prefix)
 app.include_router(report_export_router, prefix=settings.api_v1_prefix)
 app.include_router(report_status_router, prefix=settings.api_v1_prefix)
+
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 @app.get("/", tags=["root"])
 def root():
