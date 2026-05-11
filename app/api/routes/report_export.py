@@ -12,14 +12,12 @@ from app.services.report_export_service import (
 
 router = APIRouter(prefix="/report-export", tags=["report-export"])
 
-
 def get_db():
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
-
 
 def _build_file_response(file_path: Path, media_type: str):
     if not file_path.exists():
@@ -30,7 +28,6 @@ def _build_file_response(file_path: Path, media_type: str):
         filename=file_path.name,
         media_type=media_type,
     )
-
 
 @router.get("/docx/{draft_id}")
 def export_report_docx_endpoint(draft_id: int, db: Session = Depends(get_db)):

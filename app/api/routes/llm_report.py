@@ -7,14 +7,12 @@ from app.services.llm_report_service import generate_llm_report_draft
 
 router = APIRouter(prefix="/llm-report", tags=["llm-report"])
 
-
 def get_db():
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
-
 
 @router.post("/generate/{inspection_id}", response_model=ReportDraftResponse, status_code=201)
 def generate_llm_report_endpoint(

@@ -23,7 +23,6 @@ def get_db():
     finally:
         db.close()
 
-
 @router.get("/{report_draft_id}/status", response_model=ReportStatusResponse)
 def get_status(report_draft_id: int, db: Session = Depends(get_db)):
     report = get_report_or_404(db, report_draft_id)

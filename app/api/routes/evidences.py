@@ -13,14 +13,12 @@ from app.services.evidence_service import (
 
 router = APIRouter(tags=["evidences"])
 
-
 def get_db():
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
-
 
 @router.post("/inspections/{inspection_id}/evidences", response_model=EvidenceResponse, status_code=201)
 def create_evidence_endpoint(

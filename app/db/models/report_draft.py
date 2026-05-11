@@ -1,9 +1,8 @@
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, JSON
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
-
 
 class ReportDraft(Base):
     __tablename__ = "report_drafts"
@@ -11,8 +10,14 @@ class ReportDraft(Base):
     id = Column(Integer, primary_key=True, index=True)
     inspection_id = Column(Integer, ForeignKey("inspections.id"), nullable=False, index=True)
 
+    title = Column(String(255), nullable=False, server_default="Borrador de informe")
+    template_version = Column(String(50), nullable=False, server_default="v1")
+
     generated_text = Column(Text, nullable=True)
     edited_text = Column(Text, nullable=True)
+
+    source_snapshot = Column(JSON, nullable=True)
+    generation_time_ms = Column(Integer, nullable=True)
 
     status = Column(String(30), nullable=False, default="draft", server_default="draft")
     status_updated_at = Column(DateTime(timezone=True), nullable=True)

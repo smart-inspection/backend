@@ -11,14 +11,12 @@ from app.services.inspection_service import (
 
 router = APIRouter(prefix="/inspections", tags=["inspections"])
 
-
 def get_db():
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
-
 
 @router.post("", response_model=InspectionResponse, status_code=201)
 def create_inspection_endpoint(payload: InspectionCreate, db: Session = Depends(get_db)):

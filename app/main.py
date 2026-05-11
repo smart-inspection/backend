@@ -18,6 +18,8 @@ from app.api.routes.llm_report import router as llm_report_router
 from app.api.routes.report_export import router as report_export_router
 from app.api.routes.report_status import router as report_status_router
 
+from fastapi.middleware.cors import CORSMiddleware
+
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -38,7 +40,18 @@ app.include_router(llm_report_router, prefix=settings.api_v1_prefix)
 app.include_router(report_export_router, prefix=settings.api_v1_prefix)
 app.include_router(report_status_router, prefix=settings.api_v1_prefix)
 
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+app.mount(f"{settings.api_v1_prefix}/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/", tags=["root"])
 def root():
