@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     database_url: str
 
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3"
+    llm_temperature: float = 0.2
+    llm_timeout: int = 120
+
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",
         env_file_encoding="utf-8",

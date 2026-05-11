@@ -1,0 +1,7 @@
+/.idea/
+/idea/
+/uploads/
+.env
+/.venv/
+/exports/
+/output/reports/
