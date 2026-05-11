@@ -5,3 +5,4 @@
 /.venv/
 /exports/
 /output/reports/
+/app/templates/
