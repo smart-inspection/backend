@@ -447,9 +447,10 @@ def build_fixed_evidence_sections(evidences: list[Any]) -> list[dict[str, Any]]:
 
     detected_axles = sorted(
         {
-            _get_attr(item, "axlenumber", "axle_number")
+            axle
             for item in evidences or []
-            if _get_attr(item, "axlenumber", "axle_number") is not None
+            for axle in [_get_attr(item, "axlenumber", "axle_number")]
+            if axle is not None and int(axle) >= 1
         }
     )
 
@@ -476,7 +477,7 @@ def build_fixed_evidence_sections(evidences: list[Any]) -> list[dict[str, Any]]:
                             side=side,
                         )
                         side_label = "Izquierdo" if side == "left" else "Derecho"
-                        dynamic_slot_label = f"{base_label} eje {axle_number} {side_label}"
+                        dynamic_slot_label = f"{base_label} eje {int(axle_number)} {side_label}"
                         rows.append(
                             serialize_evidence_for_slot(
                                 slot_map.get(dynamic_slot_key),
