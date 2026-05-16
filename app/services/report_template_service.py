@@ -9,6 +9,37 @@ from sqlalchemy.orm import Session, selectinload
 from app.db.models import Inspection, ReportDraft, Transcription
 
 COMPANY_LOGO_PATH = "app/static/reports/global_supplier_logo.png"
+COMPANYLOGOPATH = COMPANY_LOGO_PATH
+
+FIXED_EVIDENCE_SECTIONS = [
+    {
+        "section_key": "identificacion_documental",
+        "section_title": "Identificación documental",
+        "slots": [
+            ("cover_semitrailer", "Vista general del semirremolque"),
+            ("plate_vehicle", "Placa vehicular"),
+            ("plate_technical", "Placa técnica / placa de fabricación"),
+        ],
+    },
+    {
+        "section_key": "kingpin",
+        "section_title": "Sistema King Pin",
+        "slots": [
+            ("kingpin_subject", "King Pin inspeccionado"),
+            ("kingpin_reference", "King Pin de referencia"),
+            ("kingpin_plate_subject", "Plancha de King Pin"),
+        ],
+    },
+    {
+        "section_key": "tren_rodante",
+        "section_title": "Tren rodante por eje",
+        "dynamic_axle_slots": [
+            ("journal", "Muñón"),
+            ("axle_end", "Punta de eje"),
+        ],
+    },
+]
+FIXEDEVIDENCESECTIONS = FIXED_EVIDENCE_SECTIONS
 
 COMPANY_INFO = {
     "name": "GLOBAL SUPPLIER S&P SAC.",
@@ -18,7 +49,9 @@ COMPANY_INFO = {
     "email": "ventas@globalsuppliersp.com",
     "website": "www.globalsuppliersp.com",
     "logo_path": COMPANY_LOGO_PATH,
+    "logopath": COMPANY_LOGO_PATH,
 }
+COMPANYINFO = COMPANY_INFO
 
 SECTION_MARKERS = [
     "1. IDENTIFICACIÓN DEL EQUIPO INSPECCIONADO",
@@ -48,6 +81,7 @@ SECTION_MARKERS = [
     "6. OBSERVACIONES TRANSCRITAS",
     "7. CONCLUSIÓN PRELIMINAR",
 ]
+SECTIONMARKERS = SECTION_MARKERS
 
 ISSUE_KEYWORDS = (
     "desgaste",
@@ -71,6 +105,7 @@ ISSUE_KEYWORDS = (
     "no conforme",
     "observado",
 )
+ISSUEKEYWORDS = ISSUE_KEYWORDS
 
 MONTHS_ES = {
     1: "ENERO",
@@ -86,6 +121,7 @@ MONTHS_ES = {
     11: "NOVIEMBRE",
     12: "DICIEMBRE",
 }
+MONTHSES = MONTHS_ES
 
 STANDARD_REFERENCES = [
     "B&PV ASME Code 2004. Sec. V. Art. 9. – Visual Testing.",
@@ -94,6 +130,7 @@ STANDARD_REFERENCES = [
     "ASTM E 1444 – 01 Standard Guide for Magnetic Particle Examination.",
     "B&PV ASME Code 2004. Sec. V. Art. 7. – Magnetic Testing.",
 ]
+STANDARDREFERENCES = STANDARD_REFERENCES
 
 DEFAULT_MT_ITEMS = [
     "Equipo: Yugo Magnético Y7 AC/DC",
@@ -103,6 +140,7 @@ DEFAULT_MT_ITEMS = [
     "Serie:",
     "Técnica: Baño de Partículas magnéticas marca MAGNAFLUX.",
 ]
+DEFAULTMTITEMS = DEFAULT_MT_ITEMS
 
 DEFAULT_VT_ITEMS = [
     "Instrumentos de medición:",
@@ -113,6 +151,7 @@ DEFAULT_VT_ITEMS = [
     "- Lupa",
     "- Linterna",
 ]
+DEFAULTVTITEMS = DEFAULT_VT_ITEMS
 
 RESULT_COMPONENT_ORDER = {
     "chasis": 1,
@@ -135,6 +174,7 @@ RESULT_COMPONENT_ORDER = {
     "ejes_zona_de_punta_o_munones": 9,
     "ejes_zona_de_punta_o_muñones": 9,
 }
+RESULTCOMPONENTORDER = RESULT_COMPONENT_ORDER
 
 SEMIRREMOLQUE_FREQUENCY_ROWS = [
     {"component": "Chasis", "method": "VT", "frequency": "Cada 48,000 Km", "percentage": "100%"},
@@ -145,6 +185,7 @@ SEMIRREMOLQUE_FREQUENCY_ROWS = [
     {"component": "Plancha de King-pin", "method": "VT & MT", "frequency": "Cada 48,000 Km", "percentage": "100%"},
     {"component": "Ejes, zona de punta o muñones", "method": "VT & MT", "frequency": "Cada 48,000 Km", "percentage": "100%"},
 ]
+SEMIRREMOLQUEFREQUENCYROWS = SEMIRREMOLQUE_FREQUENCY_ROWS
 
 DEFAULT_CRITERIA = {
     "accepted": (
@@ -163,16 +204,37 @@ DEFAULT_CRITERIA = {
     ],
     "retirement": "Si el equipo tiene 10 años de antigüedad o 800,000 Km de recorrido.",
 }
+DEFAULTCRITERIA = DEFAULT_CRITERIA
 
 
-def _safe_text(value: Any, default: str = "No registrado") -> str:
+def _get_attr(obj: Any, *names: str, default: Any = None) -> Any:
+    if obj is None:
+        return default
+    for name in names:
+        if hasattr(obj, name):
+            value = getattr(obj, name)
+            if value is not None:
+                return value
+    return default
+
+
+def _to_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def safe_text(value: Any, default: str = "No registrado") -> str:
     if value is None:
         return default
     text = str(value).strip()
     return text if text else default
 
 
-def _format_date(value: Any, default: str = "No registrada") -> str:
+def format_date(value: Any, default: str = "No registrada") -> str:
     if value is None:
         return default
     if hasattr(value, "strftime"):
@@ -181,11 +243,11 @@ def _format_date(value: Any, default: str = "No registrada") -> str:
     return text if text else default
 
 
-def _format_date_long(value: Any, default: str = "No registrada") -> str:
+def format_date_long(value: Any, default: str = "No registrada") -> str:
     if value is None:
         return default
     if not hasattr(value, "day"):
-        return _safe_text(value, default)
+        return safe_text(value, default)
 
     day = value.day
     month = MONTHS_ES.get(value.month, "")
@@ -194,13 +256,13 @@ def _format_date_long(value: Any, default: str = "No registrada") -> str:
     return f"{day:02d} de {month_title} del {year}"
 
 
-def _month_upper(value: Any) -> str:
+def month_upper(value: Any) -> str:
     if value is None or not hasattr(value, "month"):
         return "MES"
     return MONTHS_ES.get(value.month, "MES")
 
 
-def _normalize_key(value: str | None) -> str:
+def normalize_key(value: str | None) -> str:
     if not value:
         return ""
     text = unicodedata.normalize("NFKD", str(value))
@@ -210,41 +272,45 @@ def _normalize_key(value: str | None) -> str:
     return text.strip("_")
 
 
-def _humanize_key(value: str | None) -> str:
-    normalized = _normalize_key(value)
+def humanize_key(value: str | None) -> str:
+    normalized = normalize_key(value)
     if not normalized:
         return "Componente"
     return normalized.replace("_", " ").title()
 
 
-def _pick_attr(obj: Any, candidates: list[str], default: str = "No registrado") -> str:
+def pick_attr(obj: Any, candidates: list[str], default: str = "No registrado") -> str:
     for name in candidates:
-        value = getattr(obj, name, None)
+        value = _get_attr(obj, name)
         if value is None:
             continue
         if hasattr(value, "strftime"):
-            return _format_date(value, default)
+            return format_date(value, default)
         text = str(value).strip()
         if text:
             return text
     return default
 
 
-def _field_best_value(field: Any, default: str = "No registrado") -> str:
-    for attr in ("final_value", "manual_value", "ocr_value"):
-        value = getattr(field, attr, None)
+def field_best_value(field: Any, default: str = "No registrado") -> str:
+    for attr in ("finalvalue", "final_value", "manualvalue", "manual_value", "ocrvalue", "ocr_value"):
+        value = _get_attr(field, attr)
         if value is not None and str(value).strip():
             return str(value).strip()
     return default
 
 
-def _draft_text(draft: ReportDraft | None) -> str:
+def draft_text(draft: ReportDraft | None) -> str:
     if not draft:
         return ""
-    return (draft.edited_text or draft.generated_text or "").strip()
+    return safe_text(
+        _get_attr(draft, "editedtext", "edited_text", default=None)
+        or _get_attr(draft, "generatedtext", "generated_text", default=None),
+        "",
+    )
 
 
-def _extract_section(text: str, headings: list[str], fallback: str = "") -> str:
+def extract_section(text: str, headings: list[str], fallback: str = "") -> str:
     if not text:
         return fallback
 
@@ -275,44 +341,187 @@ def _extract_section(text: str, headings: list[str], fallback: str = "") -> str:
     return section_text or fallback
 
 
-def _has_issue_text(value: str | None) -> bool:
-    normalized = _normalize_key(value or "")
+def has_issue_text(value: str | None) -> bool:
+    normalized = normalize_key(value or "")
     if not normalized:
         return False
     normalized_text = normalized.replace("_", " ")
     return any(keyword in normalized_text for keyword in ISSUE_KEYWORDS)
 
 
-def _get_field_map(inspection: Inspection) -> dict[str, str]:
+def get_field_map(inspection: Inspection) -> dict[str, str]:
     data: dict[str, str] = {}
-
     for field in getattr(inspection, "fields", []) or []:
-        value = _field_best_value(field, default="")
+        value = field_best_value(field, default="")
         if not value:
             continue
 
-        field_key = _normalize_key(getattr(field, "field_key", None))
-        field_label = _normalize_key(getattr(field, "field_label", None))
+        field_key = normalize_key(_get_attr(field, "fieldkey", "field_key"))
+        field_label = normalize_key(_get_attr(field, "fieldlabel", "field_label"))
 
         if field_key:
             data[field_key] = value
         if field_label:
             data[field_label] = value
-
     return data
 
 
-def _find_field(field_map: dict[str, str], aliases: list[str], default: str = "No registrado") -> str:
+def find_field(field_map: dict[str, str], aliases: list[str], default: str = "No registrado") -> str:
     for alias in aliases:
-        key = _normalize_key(alias)
+        key = normalize_key(alias)
         value = field_map.get(key)
         if value is not None and str(value).strip():
             return str(value).strip()
     return default
 
 
-def _extract_client_code(requested_by: str) -> str:
-    text = _safe_text(requested_by, "CLIENTE")
+def evidence_best_title(evidence: Any, fallback: str) -> str:
+    caption = _get_attr(evidence, "caption")
+    raw_label = _get_attr(evidence, "rawlabel", "raw_label")
+    normalized_label = _get_attr(evidence, "normalizedlabel", "normalized_label")
+    return safe_text(caption or raw_label or normalized_label, fallback)
+
+
+def build_evidence_slot_map(evidences: list[Any]) -> dict[str, Any]:
+    slot_map: dict[str, Any] = {}
+    for evidence in evidences or []:
+        slot = _get_attr(evidence, "evidenceslot", "evidence_slot")
+        if slot and slot not in slot_map:
+            slot_map[slot] = evidence
+    return slot_map
+
+
+def build_dynamic_axle_slot_name(component_code: str, axle_number: int, side: str) -> str:
+    if component_code == "journal":
+        return f"journal_{axle_number}_{side}"
+    if component_code == "axle_end":
+        return f"axle_{axle_number}_{side}_end"
+    return f"{component_code}_{axle_number}_{side}"
+
+
+def serialize_evidence_for_slot(evidence: Any, slot_label: str, slot_key: str) -> dict[str, Any]:
+    if not evidence:
+        return {
+            "slot_key": slot_key,
+            "slotkey": slot_key,
+            "slot_label": slot_label,
+            "slotlabel": slot_label,
+            "present": False,
+            "filepath": None,
+            "file_path": None,
+            "caption": "No registrada",
+            "filetype": "No registrado",
+            "file_type": "No registrado",
+            "ocrtext": "",
+            "ocr_text": "",
+            "evidencecategory": "No registrado",
+            "evidence_category": "No registrado",
+        }
+
+    file_path = _get_attr(evidence, "filepath", "file_path")
+    file_type = safe_text(_get_attr(evidence, "filetype", "file_type"))
+    ocr_text = safe_text(_get_attr(evidence, "ocrextractedtext", "ocr_extracted_text"), "")
+    evidence_category = safe_text(_get_attr(evidence, "evidencecategory", "evidence_category"))
+
+    return {
+        "slot_key": slot_key,
+        "slotkey": slot_key,
+        "slot_label": slot_label,
+        "slotlabel": slot_label,
+        "present": True,
+        "filepath": file_path,
+        "file_path": file_path,
+        "caption": evidence_best_title(evidence, slot_label),
+        "filetype": file_type,
+        "file_type": file_type,
+        "ocrtext": ocr_text,
+        "ocr_text": ocr_text,
+        "evidencecategory": evidence_category,
+        "evidence_category": evidence_category,
+    }
+
+
+def build_fixed_evidence_sections(evidences: list[Any]) -> list[dict[str, Any]]:
+    slot_map = build_evidence_slot_map(evidences)
+    sections: list[dict[str, Any]] = []
+
+    detected_axles = sorted(
+        {
+            _get_attr(item, "axlenumber", "axle_number")
+            for item in evidences or []
+            if _get_attr(item, "axlenumber", "axle_number") is not None
+        }
+    )
+
+    for section in FIXED_EVIDENCE_SECTIONS:
+        rows: list[dict[str, Any]] = []
+
+        for slot_key, slot_label in section.get("slots", []):
+            rows.append(
+                serialize_evidence_for_slot(
+                    slot_map.get(slot_key),
+                    slot_label=slot_label,
+                    slot_key=slot_key,
+                )
+            )
+
+        dynamic_axle_slots = section.get("dynamic_axle_slots", [])
+        if dynamic_axle_slots:
+            for axle_number in detected_axles:
+                for side in ("left", "right"):
+                    for component_code, base_label in dynamic_axle_slots:
+                        dynamic_slot_key = build_dynamic_axle_slot_name(
+                            component_code=component_code,
+                            axle_number=axle_number,
+                            side=side,
+                        )
+                        side_label = "Izquierdo" if side == "left" else "Derecho"
+                        dynamic_slot_label = f"{base_label} eje {axle_number} {side_label}"
+                        rows.append(
+                            serialize_evidence_for_slot(
+                                slot_map.get(dynamic_slot_key),
+                                slot_label=dynamic_slot_label,
+                                slot_key=dynamic_slot_key,
+                            )
+                        )
+
+        sections.append(
+            {
+                "section_key": section["section_key"],
+                "sectionkey": section["section_key"],
+                "section_title": section["section_title"],
+                "sectiontitle": section["section_title"],
+                "items": rows,
+            }
+        )
+
+    return sections
+
+
+def build_evidence_section_by_slots(evidences: list[Any]) -> str:
+    sections = build_fixed_evidence_sections(evidences)
+    if not sections:
+        return "No se registraron evidencias asociadas."
+
+    lines: list[str] = []
+    for section in sections:
+        lines.append(section["section_title"])
+        for item in section["items"]:
+            if item["present"]:
+                lines.append(
+                    f"- {item['slot_label']}: OK | categoría {item['evidence_category']} | "
+                    f"tipo {item['file_type']} | ruta {safe_text(item['filepath'], 'Sin ruta')} | "
+                    f"descripción {item['caption']} | OCR {safe_text(item['ocr_text'], 'Sin OCR')}"
+                )
+            else:
+                lines.append(f"- {item['slot_label']}: PENDIENTE")
+        lines.append("")
+
+    return "\n".join(lines).strip()
+
+
+def extract_client_code(requested_by: str) -> str:
+    text = safe_text(requested_by, "CLIENTE")
     direct = re.search(r"\b([A-Z]{2,6})\b", text.upper())
     if direct:
         return direct.group(1)
@@ -322,16 +531,16 @@ def _extract_client_code(requested_by: str) -> str:
     return initials or "CLI"
 
 
-def _extract_sequence_from_code(code: str) -> str:
-    text = _safe_text(code, "")
+def extract_sequence_from_code(code: str) -> str:
+    text = safe_text(code, "")
     matches = re.findall(r"(\d+)", text)
     if not matches:
         return "001"
     return matches[-1].zfill(3)[-3:]
 
 
-def _equipment_abbreviation(equipment_type: str) -> str:
-    normalized = _normalize_key(equipment_type)
+def equipment_abbreviation(equipment_type: str) -> str:
+    normalized = normalize_key(equipment_type)
     if "semirremolque" in normalized:
         return "SR"
     if "remolque" in normalized:
@@ -341,29 +550,32 @@ def _equipment_abbreviation(equipment_type: str) -> str:
     return "EQ"
 
 
-def _build_report_code_display(inspection: Inspection, field_map: dict[str, str]) -> str:
-    inspection_date = getattr(inspection, "inspection_date", None)
-    month = _month_upper(inspection_date)
+def build_report_code_display(inspection: Inspection, field_map: dict[str, str]) -> str:
+    inspection_date = _get_attr(inspection, "inspectiondate", "inspection_date")
+    month = month_upper(inspection_date)
     year = str(getattr(inspection_date, "year", datetime.now().year))
 
-    report_sequence = _find_field(
+    report_sequence = find_field(
         field_map,
         ["numero_informe", "correlativo_informe", "report_sequence", "nro_informe", "numero_reporte"],
         default="",
     )
     if not report_sequence:
-        report_sequence = _extract_sequence_from_code(_safe_text(getattr(inspection, "code", None), ""))
+        report_sequence = extract_sequence_from_code(safe_text(_get_attr(inspection, "code"), ""))
 
-    requested_by = _safe_text(getattr(inspection, "requested_by", None), _safe_text(getattr(inspection, "client_name", None)))
-    client_code = _find_field(field_map, ["sigla_cliente", "client_code"], default="")
+    requested_by = safe_text(
+        _get_attr(inspection, "requestedby", "requested_by"),
+        safe_text(_get_attr(inspection, "clientname", "client_name")),
+    )
+    client_code = find_field(field_map, ["sigla_cliente", "client_code"], default="")
     if not client_code:
-        client_code = _extract_client_code(requested_by)
+        client_code = extract_client_code(requested_by)
 
-    equipment_code = _equipment_abbreviation(_safe_text(getattr(inspection, "equipment_type", None)))
+    equipment_code = equipment_abbreviation(safe_text(_get_attr(inspection, "equipmenttype", "equipment_type")))
     return f"GS – {month} {year} – {str(report_sequence).zfill(3)} – {equipment_code} - {client_code}"
 
 
-def _build_methods(evidences: list[Any], transcriptions: list[Any], full_text: str = "") -> list[str]:
+def build_methods(evidences: list[Any], transcriptions: list[Any], full_text: str = "") -> list[str]:
     methods = ["INSPECCIÓN VISUAL (VT)"]
 
     upper_text = (full_text or "").upper()
@@ -371,14 +583,14 @@ def _build_methods(evidences: list[Any], transcriptions: list[Any], full_text: s
         methods.append("PARTÍCULAS MAGNÉTICAS (MT)")
 
     has_transcriptions = any(
-        bool((getattr(item, "final_text", None) or getattr(item, "raw_text", None) or "").strip())
+        bool((safe_text(_get_attr(item, "finaltext", "final_text", default=None), "") or safe_text(_get_attr(item, "rawtext", "raw_text", default=None), "")).strip())
         for item in transcriptions or []
     )
     if has_transcriptions:
         methods.append("TRANSCRIPCIÓN DE OBSERVACIONES")
 
     has_ocr = any(
-        bool(getattr(item, "ocr_processed", False) or getattr(item, "ocr_extracted_text", None))
+        bool(_get_attr(item, "ocrprocessed", "ocr_processed", default=False) or _get_attr(item, "ocrextractedtext", "ocr_extracted_text", default=None))
         for item in evidences or []
     )
     if has_ocr and "VALIDACIÓN DOCUMENTAL (OCR)" not in methods:
@@ -391,29 +603,27 @@ def _build_methods(evidences: list[Any], transcriptions: list[Any], full_text: s
     return deduped
 
 
-def _build_intro_paragraph(
-    inspection: Inspection,
-    plate: str,
-    methods: list[str],
-) -> str:
-    requested_by = _safe_text(getattr(inspection, "requested_by", None), _safe_text(getattr(inspection, "client_name", None)))
-    equipment_type = _safe_text(getattr(inspection, "equipment_type", None))
-    inspection_type = _safe_text(getattr(inspection, "inspection_type", None)).lower()
+def build_intro_paragraph(inspection: Inspection, plate: str, methods: list[str]) -> str:
+    requested_by = safe_text(
+        _get_attr(inspection, "requestedby", "requested_by"),
+        safe_text(_get_attr(inspection, "clientname", "client_name")),
+    )
+    equipment_type = safe_text(_get_attr(inspection, "equipmenttype", "equipment_type"))
+    inspection_type = safe_text(_get_attr(inspection, "inspectiontype", "inspection_type")).lower()
     methods_text = " / ".join(methods)
-
     plate_text = f" identificado con placa {plate}" if plate != "No registrado" else ""
+
     return (
         f"A solicitud de la empresa {requested_by}, se ha realizado la inspección {inspection_type} "
         f"del equipo {equipment_type}{plate_text}, empleando los métodos {methods_text}."
     )
 
+def build_objective(inspection: Inspection, extracted_objective: str) -> str:
+    if extracted_objective:
+        return extracted_objective
 
-def _build_objective(inspection: Inspection, extracted_summary: str) -> str:
-    if extracted_summary:
-        return extracted_summary
-
-    equipment_type = _safe_text(getattr(inspection, "equipment_type", None))
-    normalized = _normalize_key(equipment_type)
+    equipment_type = safe_text(_get_attr(inspection, "equipmenttype", "equipment_type"))
+    normalized = normalize_key(equipment_type)
 
     if "semirremolque" in normalized:
         return (
@@ -430,15 +640,14 @@ def _build_objective(inspection: Inspection, extracted_summary: str) -> str:
         "finalidad de emitir un informe técnico uniforme, verificable y trazable."
     )
 
-
-def _build_scope(
+def build_scope(
     inspection: Inspection,
     methods: list[str],
     evidences: list[Any],
     transcriptions: list[Any],
 ) -> list[str]:
-    equipment_type = _safe_text(getattr(inspection, "equipment_type", None))
-    normalized = _normalize_key(equipment_type)
+    equipment_type = safe_text(_get_attr(inspection, "equipmenttype", "equipment_type"))
+    normalized = normalize_key(equipment_type)
 
     items: list[str] = []
 
@@ -457,25 +666,23 @@ def _build_scope(
 
     return items
 
-
-def _build_protocol(
-    inspection: Inspection,
-    extracted_protocol: str,
-) -> str:
+def build_protocol(inspection: Inspection, extracted_protocol: str) -> str:
     if extracted_protocol:
         return extracted_protocol
 
-    requested_by = _safe_text(getattr(inspection, "requested_by", None), _safe_text(getattr(inspection, "client_name", None)))
+    requested_by = safe_text(
+        _get_attr(inspection, "requestedby", "requested_by"),
+        safe_text(_get_attr(inspection, "clientname", "client_name")),
+    )
     return (
         f"La presente inspección fue realizada de acuerdo con los criterios técnicos aplicables al servicio solicitado por "
         f"{requested_by}, bajo una metodología estructurada de inspección visual, registro documental, consolidación "
         "de hallazgos y emisión formal de resultados."
     )
 
-
-def _build_frequency_rows(inspection: Inspection) -> list[dict[str, str]]:
-    equipment_type = _safe_text(getattr(inspection, "equipment_type", None))
-    normalized = _normalize_key(equipment_type)
+def build_frequency_rows(inspection: Inspection) -> list[dict[str, str]]:
+    equipment_type = safe_text(_get_attr(inspection, "equipmenttype", "equipment_type"))
+    normalized = normalize_key(equipment_type)
 
     if "semirremolque" in normalized:
         return SEMIRREMOLQUE_FREQUENCY_ROWS.copy()
@@ -485,20 +692,16 @@ def _build_frequency_rows(inspection: Inspection) -> list[dict[str, str]]:
     ]
 
 
-def _build_frequency_note(
-    inspection: Inspection,
-    field_map: dict[str, str],
-    extracted_frequency: str,
-) -> str:
+def build_frequency_note(inspection: Inspection, field_map: dict[str, str], extracted_frequency: str) -> str:
     if extracted_frequency:
         return extracted_frequency
 
-    equipment_type = _safe_text(getattr(inspection, "equipment_type", None))
-    model = _find_field(field_map, ["modelo", "model", "placa", "plate"], default="No registrado")
-    mileage = _find_field(field_map, ["kilometraje", "mileage", "odometro", "odómetro"], default="No registrado")
-    age = _find_field(field_map, ["antiguedad", "antigüedad", "age"], default="No registrada")
+    equipment_type = safe_text(_get_attr(inspection, "equipmenttype", "equipment_type"))
+    model = find_field(field_map, ["modelo", "model", "placa", "plate"], default="No registrado")
+    mileage = find_field(field_map, ["kilometraje", "mileage", "odometro", "odómetro"], default="No registrado")
+    age = find_field(field_map, ["antiguedad", "antigüedad", "age"], default="No registrada")
 
-    normalized = _normalize_key(equipment_type)
+    normalized = normalize_key(equipment_type)
     if "semirremolque" in normalized:
         return (
             f"Para el modelo {model}, se recomienda mantener una frecuencia de inspección estructural "
@@ -513,24 +716,26 @@ def _build_frequency_note(
     )
 
 
-def _build_standards(extracted_standards: str) -> list[str]:
+def build_standards(extracted_standards: str) -> list[str]:
     if extracted_standards:
         lines = [line.strip("•- \t") for line in extracted_standards.splitlines() if line.strip()]
         return lines or STANDARD_REFERENCES.copy()
     return STANDARD_REFERENCES.copy()
 
 
-def _build_inspection_equipment(
+def build_inspection_equipment(
     evidences: list[Any],
     transcriptions: list[Any],
     extracted_equipment: str,
-) -> dict[str, list[str]]:
+) -> dict[str, list[str] | str]:
     if extracted_equipment:
         lines = [line.strip() for line in extracted_equipment.splitlines() if line.strip()]
         midpoint = max(1, len(lines) // 2)
         return {
             "mt_title": "Magnetic Testing (MT)",
+            "mttitle": "Magnetic Testing (MT)",
             "vt_title": "Visual Testing (VT)",
+            "vttitle": "Visual Testing (VT)",
             "mt": lines[:midpoint],
             "vt": lines[midpoint:],
         }
@@ -538,20 +743,22 @@ def _build_inspection_equipment(
     mt_items = DEFAULT_MT_ITEMS.copy()
     vt_items = DEFAULT_VT_ITEMS.copy()
 
-    if any(bool(getattr(item, "ocr_processed", False)) for item in evidences or []):
+    if any(bool(_get_attr(item, "ocrprocessed", "ocr_processed", default=False)) for item in evidences or []):
         vt_items.append("- Soporte de validación OCR")
     if transcriptions:
         vt_items.append("- Registro de observaciones transcritas")
 
     return {
         "mt_title": "Magnetic Testing (MT)",
+        "mttitle": "Magnetic Testing (MT)",
         "vt_title": "Visual Testing (VT)",
+        "vttitle": "Visual Testing (VT)",
         "mt": mt_items,
         "vt": vt_items,
     }
 
 
-def _build_criteria(extracted_criteria: str) -> dict[str, Any]:
+def build_criteria(extracted_criteria: str) -> dict[str, Any]:
     if extracted_criteria:
         lines = [line.strip() for line in extracted_criteria.splitlines() if line.strip()]
         accepted = ""
@@ -574,13 +781,20 @@ def _build_criteria(extracted_criteria: str) -> dict[str, Any]:
             "accepted": accepted or DEFAULT_CRITERIA["accepted"],
             "rejected": rejected or DEFAULT_CRITERIA["rejected"],
             "rejected_items": rejected_items or DEFAULT_CRITERIA["rejected_items"],
+            "rejecteditems": rejected_items or DEFAULT_CRITERIA["rejected_items"],
             "retirement": retirement or DEFAULT_CRITERIA["retirement"],
         }
 
-    return DEFAULT_CRITERIA.copy()
+    return {
+        "accepted": DEFAULT_CRITERIA["accepted"],
+        "rejected": DEFAULT_CRITERIA["rejected"],
+        "rejected_items": DEFAULT_CRITERIA["rejected_items"],
+        "rejecteditems": DEFAULT_CRITERIA["rejected_items"],
+        "retirement": DEFAULT_CRITERIA["retirement"],
+    }
 
 
-def _build_findings_from_fields(fields: list[Any]) -> str:
+def build_findings_from_fields(fields: list[Any]) -> str:
     if not fields:
         return "No se registraron hallazgos específicos."
 
@@ -588,16 +802,16 @@ def _build_findings_from_fields(fields: list[Any]) -> str:
     info_lines: list[str] = []
 
     for field in fields:
-        label = _safe_text(getattr(field, "field_label", None), _safe_text(getattr(field, "field_key", None), "Campo"))
-        value = _field_best_value(field, default="")
+        label = safe_text(_get_attr(field, "fieldlabel", "field_label"), safe_text(_get_attr(field, "fieldkey", "field_key"), "Campo"))
+        value = field_best_value(field, default="")
         if not value:
             continue
 
         line = f"- {label}: {value}"
-        status = _safe_text(getattr(field, "validation_status", None), "pending").lower()
-        message = _safe_text(getattr(field, "validation_message", None), "")
+        status = safe_text(_get_attr(field, "validationstatus", "validation_status"), "pending").lower()
+        message = safe_text(_get_attr(field, "validationmessage", "validation_message"), "")
 
-        if _has_issue_text(value) or status in {"mismatch", "not_found"}:
+        if has_issue_text(value) or status in {"mismatch", "notfound", "not_found"}:
             if message:
                 line = f"{line} ({message})"
             issue_lines.append(line)
@@ -608,7 +822,7 @@ def _build_findings_from_fields(fields: list[Any]) -> str:
     return "\n".join(selected) if selected else "No se registraron hallazgos específicos."
 
 
-def _build_ocr_summary_from_fields(fields: list[Any]) -> str:
+def build_ocr_summary_from_fields(fields: list[Any]) -> str:
     if not fields:
         return "No hay resultados OCR asociados."
 
@@ -619,22 +833,22 @@ def _build_ocr_summary_from_fields(fields: list[Any]) -> str:
     details: list[str] = []
 
     for field in fields:
-        status = _safe_text(getattr(field, "validation_status", None), "pending").lower()
-        label = _safe_text(getattr(field, "field_label", None), _safe_text(getattr(field, "field_key", None), "Campo"))
-        manual_value = _safe_text(getattr(field, "manual_value", None))
-        ocr_value = _safe_text(getattr(field, "ocr_value", None))
-        message = _safe_text(getattr(field, "validation_message", None), "")
+        status = safe_text(_get_attr(field, "validationstatus", "validation_status"), "pending").lower()
+        label = safe_text(_get_attr(field, "fieldlabel", "field_label"), safe_text(_get_attr(field, "fieldkey", "field_key"), "Campo"))
+        manual_value = safe_text(_get_attr(field, "manualvalue", "manual_value"))
+        ocr_value = safe_text(_get_attr(field, "ocrvalue", "ocr_value"))
+        message = safe_text(_get_attr(field, "validationmessage", "validation_message"), "")
 
         if status == "matched":
             matched += 1
-        elif status == "mismatch":
+        elif status in {"mismatch", "mismatched"}:
             mismatched += 1
-        elif status == "not_found":
+        elif status in {"notfound", "not_found"}:
             not_found += 1
         else:
             pending += 1
 
-        if status in {"mismatch", "not_found"}:
+        if status in {"mismatch", "mismatched", "notfound", "not_found"}:
             detail = f"- {label}: manual='{manual_value}' | ocr='{ocr_value}' | estado='{status}'"
             if message:
                 detail += f" | detalle='{message}'"
@@ -658,23 +872,27 @@ def _build_ocr_summary_from_fields(fields: list[Any]) -> str:
     return "\n".join(lines).strip()
 
 
-def _build_voice_summary_from_transcriptions(transcriptions: list[Transcription]) -> str:
+def build_voice_summary_from_transcriptions(transcriptions: list[Transcription]) -> str:
     if not transcriptions:
         return "No se registraron transcripciones asociadas."
 
     blocks: list[str] = []
     for idx, item in enumerate(transcriptions, start=1):
-        text = (item.final_text or item.raw_text or "").strip()
+        text = safe_text(
+            _get_attr(item, "finaltext", "final_text", default=None)
+            or _get_attr(item, "rawtext", "raw_text", default=None),
+            "",
+        )
         if not text:
             continue
 
-        confidence = getattr(item, "confidence", None)
+        confidence = _to_float(_get_attr(item, "confidence"))
         confidence_text = f" | confianza={confidence}" if confidence is not None else ""
 
         blocks.append(
             "\n".join(
                 [
-                    f"Transcripción {idx} | idioma={_safe_text(getattr(item, 'language', None), 'No registrado')} | modelo={_safe_text(getattr(item, 'model_name', None), 'No registrado')}{confidence_text}",
+                    f"Transcripción {idx} | idioma={safe_text(_get_attr(item, 'language'), 'No registrado')} | modelo={safe_text(_get_attr(item, 'modelname', 'model_name'), 'No registrado')}{confidence_text}",
                     text,
                 ]
             )
@@ -683,19 +901,13 @@ def _build_voice_summary_from_transcriptions(transcriptions: list[Transcription]
     return "\n\n".join(blocks) if blocks else "No se registraron transcripciones asociadas."
 
 
-def _build_recommendations_from_fields(
-    fields: list[Any],
-    evidences: list[Any],
-    transcriptions: list[Any],
-) -> str:
+def build_recommendations_from_fields(fields: list[Any], evidences: list[Any], transcriptions: list[Any]) -> str:
     mismatches = sum(
         1
         for field in fields or []
-        if _safe_text(getattr(field, "validation_status", None), "pending").lower() == "mismatch"
+        if safe_text(_get_attr(field, "validationstatus", "validation_status"), "pending").lower() in {"mismatch", "mismatched"}
     )
-    issue_values = sum(
-        1 for field in fields or [] if _has_issue_text(_field_best_value(field, default=""))
-    )
+    issue_values = sum(1 for field in fields or [] if has_issue_text(field_best_value(field, default="")))
 
     recommendations: list[str] = []
 
@@ -713,7 +925,7 @@ def _build_recommendations_from_fields(
     return "\n".join(f"- {item}" for item in recommendations)
 
 
-def _build_conclusion_from_state(
+def build_conclusion_from_state(
     inspection: Inspection,
     plate: str,
     fields: list[Any],
@@ -724,15 +936,23 @@ def _build_conclusion_from_state(
     mismatch_count = sum(
         1
         for field in fields or []
-        if _safe_text(getattr(field, "validation_status", None), "pending").lower() == "mismatch"
+        if safe_text(_get_attr(field, "validationstatus", "validation_status"), "pending").lower() in {"mismatch", "mismatched"}
     )
-    issue_count = sum(
-        1 for field in fields or [] if _has_issue_text(_field_best_value(field, default=""))
-    )
+    issue_count = sum(1 for field in fields or [] if has_issue_text(field_best_value(field, default="")))
     evidence_count = len(evidences or [])
-    transcription_count = len([item for item in transcriptions or [] if (item.final_text or item.raw_text or "").strip()])
+    transcription_count = len(
+        [
+            item
+            for item in transcriptions or []
+            if safe_text(
+                _get_attr(item, "finaltext", "final_text", default=None)
+                or _get_attr(item, "rawtext", "raw_text", default=None),
+                "",
+            )
+        ]
+    )
 
-    equipment_type = _safe_text(getattr(inspection, "equipment_type", None))
+    equipment_type = safe_text(_get_attr(inspection, "equipmenttype", "equipment_type"))
     equipment_label = f"{equipment_type} {plate}" if plate != "No registrado" else equipment_type
 
     if general_condition.upper() == "ACEPTADO":
@@ -762,7 +982,7 @@ def _build_conclusion_from_state(
     )
 
 
-def _derive_group_condition(group_fields: list[Any]) -> str:
+def derive_group_condition(group_fields: list[Any]) -> str:
     explicit_condition_aliases = {
         "aceptado": "Aceptado",
         "aprobado": "Aceptado",
@@ -775,65 +995,61 @@ def _derive_group_condition(group_fields: list[Any]) -> str:
     }
 
     for field in group_fields:
-        key = _normalize_key(getattr(field, "field_key", None))
+        key = normalize_key(_get_attr(field, "fieldkey", "field_key"))
         if "condicion" in key or "estado" in key or "resultado" in key:
-            value = _field_best_value(field, default="")
-            normalized = _normalize_key(value).replace("_", " ")
+            value = field_best_value(field, default="")
+            normalized = normalize_key(value).replace("_", " ")
             for alias, mapped in explicit_condition_aliases.items():
                 if alias in normalized:
                     return mapped
 
-    issue_detected = any(_has_issue_text(_field_best_value(field, default="")) for field in group_fields)
+    issue_detected = any(has_issue_text(field_best_value(field, default="")) for field in group_fields)
     mismatch_detected = any(
-        _safe_text(getattr(field, "validation_status", None), "pending").lower() == "mismatch"
+        safe_text(_get_attr(field, "validationstatus", "validation_status"), "pending").lower() in {"mismatch", "mismatched"}
         for field in group_fields
     )
     pending_detected = any(
-        _safe_text(getattr(field, "validation_status", None), "pending").lower() in {"pending", "not_found", "not_evaluated"}
+        safe_text(_get_attr(field, "validationstatus", "validation_status"), "pending").lower() in {"pending", "notfound", "not_found", "notevaluated", "not_evaluated"}
         for field in group_fields
     )
 
-    if issue_detected:
-        return "Observado"
-    if mismatch_detected:
+    if issue_detected or mismatch_detected:
         return "Observado"
     if pending_detected:
         return "Pendiente"
     return "Registrado"
 
 
-def _derive_group_action(condition: str) -> str:
-    normalized = _normalize_key(condition)
+def derive_group_action(condition: str) -> str:
+    normalized = normalize_key(condition)
     if normalized in {"observado", "rechazado"}:
         return "Revisar y definir acción correctiva"
     if normalized == "pendiente":
         return "Completar revisión técnica"
     if normalized == "aceptado":
         return "--"
-    if normalized == "registrado":
-        return "Validar en revisión final"
     return "Validar en revisión final"
 
 
-def _truncate(value: str, max_len: int = 140) -> str:
-    text = _safe_text(value, "")
+def truncate(value: str, max_len: int = 140) -> str:
+    text = safe_text(value, "")
     if len(text) <= max_len:
         return text
     return text[: max_len - 3].rstrip() + "..."
 
 
-def _build_group_observation(group_fields: list[Any]) -> str:
+def build_group_observation(group_fields: list[Any]) -> str:
     issue_lines: list[str] = []
     normal_lines: list[str] = []
 
     for field in group_fields:
-        label = _safe_text(getattr(field, "field_label", None), _safe_text(getattr(field, "field_key", None), "Campo"))
-        value = _field_best_value(field, default="")
+        label = safe_text(_get_attr(field, "fieldlabel", "field_label"), safe_text(_get_attr(field, "fieldkey", "field_key"), "Campo"))
+        value = field_best_value(field, default="")
         if not value:
             continue
 
-        line = f"{label}: {_truncate(value, 90)}"
-        if _has_issue_text(value):
+        line = f"{label}: {truncate(value, 90)}"
+        if has_issue_text(value):
             issue_lines.append(line)
         else:
             normal_lines.append(line)
@@ -842,8 +1058,8 @@ def _build_group_observation(group_fields: list[Any]) -> str:
     return " | ".join(selected) if selected else "--"
 
 
-def _humanize_component_name(group_name: str) -> str:
-    normalized = _normalize_key(group_name)
+def humanize_component_name(group_name: str) -> str:
+    normalized = normalize_key(group_name)
     custom = {
         "chasis": "Chasis",
         "puntas_de_ejes": "Puntas de Ejes",
@@ -865,14 +1081,10 @@ def _humanize_component_name(group_name: str) -> str:
         "ejes_zona_de_punta_o_munones": "Ejes, zona de punta o muñones",
         "ejes_zona_de_punta_o_muñones": "Ejes, zona de punta o muñones",
     }
-    return custom.get(normalized, _humanize_key(group_name))
+    return custom.get(normalized, humanize_key(group_name))
 
 
-def _build_results_rows(
-    inspection: Inspection,
-    fields: list[Any],
-    general_condition: str,
-) -> list[dict[str, str]]:
+def build_results_rows(inspection: Inspection, fields: list[Any], general_condition: str) -> list[dict[str, str]]:
     groups: dict[str, list[Any]] = defaultdict(list)
     ignored_groups = {
         "general",
@@ -886,7 +1098,7 @@ def _build_results_rows(
     }
 
     for field in fields or []:
-        group = _normalize_key(getattr(field, "field_group", None))
+        group = normalize_key(_get_attr(field, "fieldgroup", "field_group"))
         if not group or group in ignored_groups:
             continue
         groups[group].append(field)
@@ -897,19 +1109,19 @@ def _build_results_rows(
         ordered_groups = sorted(
             groups.items(),
             key=lambda item: (
-                RESULT_COMPONENT_ORDER.get(_normalize_key(item[0]), 999),
-                _humanize_component_name(item[0]),
+                RESULT_COMPONENT_ORDER.get(normalize_key(item[0]), 999),
+                humanize_component_name(item[0]),
             ),
         )
         for group_name, group_fields in ordered_groups:
-            condition = _derive_group_condition(group_fields)
+            condition = derive_group_condition(group_fields)
             rows.append(
                 {
-                    "equipo": _safe_text(getattr(inspection, "equipment_type", None)),
-                    "componente": _humanize_component_name(group_name),
+                    "equipo": safe_text(_get_attr(inspection, "equipmenttype", "equipment_type")),
+                    "componente": humanize_component_name(group_name),
                     "condicion": condition,
-                    "observaciones": _build_group_observation(group_fields),
-                    "accion": _derive_group_action(condition),
+                    "observaciones": build_group_observation(group_fields),
+                    "accion": derive_group_action(condition),
                 }
             )
 
@@ -935,7 +1147,7 @@ def _build_results_rows(
         for component in default_components:
             rows.append(
                 {
-                    "equipo": _safe_text(getattr(inspection, "equipment_type", None)),
+                    "equipo": safe_text(_get_attr(inspection, "equipmenttype", "equipment_type")),
                     "componente": component,
                     "condicion": default_condition,
                     "observaciones": "--",
@@ -946,40 +1158,81 @@ def _build_results_rows(
     return rows
 
 
-def _build_evidences(
-    inspection: Inspection,
-    transcriptions: list[Transcription],
-) -> list[dict[str, Any]]:
+def build_evidences(inspection: Inspection, transcriptions: list[Transcription]) -> list[dict[str, Any]]:
     evidence_transcription_map: dict[int, list[str]] = defaultdict(list)
     for item in transcriptions or []:
-        if getattr(item, "evidence_id", None) is None:
+        evidence_id = _get_attr(item, "evidenceid", "evidence_id")
+        if evidence_id is None:
             continue
-        text = (item.final_text or item.raw_text or "").strip()
+
+        text = safe_text(
+            _get_attr(item, "finaltext", "final_text", default=None)
+            or _get_attr(item, "rawtext", "raw_text", default=None),
+            "",
+        )
         if text:
-            evidence_transcription_map[item.evidence_id].append(text)
+            evidence_transcription_map[evidence_id].append(text)
 
     evidences: list[dict[str, Any]] = []
     for idx, evidence in enumerate(getattr(inspection, "evidences", []) or [], start=1):
-        linked_transcriptions = evidence_transcription_map.get(evidence.id, [])
-        ocr_text = _safe_text(getattr(evidence, "ocr_extracted_text", None), "")
+        evidence_id = _get_attr(evidence, "id")
+        linked_transcriptions = evidence_transcription_map.get(evidence_id, [])
+
+        ocr_text = safe_text(_get_attr(evidence, "ocrextractedtext", "ocr_extracted_text"), "")
         if linked_transcriptions:
             transcribed_block = " | ".join(linked_transcriptions[:2])
             ocr_text = f"{ocr_text}\n{transcribed_block}".strip() if ocr_text else transcribed_block
 
-        category = _safe_text(getattr(evidence, "evidence_category", None), "Evidencia general")
-        caption = _safe_text(getattr(evidence, "caption", None), f"Foto {idx}")
+        category = safe_text(_get_attr(evidence, "evidencecategory", "evidence_category"), "Evidencia general")
+        caption = safe_text(_get_attr(evidence, "caption"), f"Foto {idx}")
         display_title = caption if caption != f"Foto {idx}" else f"Foto {idx}. {category}"
+        file_path = _get_attr(evidence, "filepath", "file_path")
+        file_type = _get_attr(evidence, "filetype", "file_type")
+        evidence_slot = _get_attr(evidence, "evidenceslot", "evidence_slot")
+        component_code = _get_attr(evidence, "componentcode", "component_code")
+        axle_number = _get_attr(evidence, "axlenumber", "axle_number")
+        side = _get_attr(evidence, "side")
+        is_reference = bool(_get_attr(evidence, "isreference", "is_reference", default=False))
+        ocr_confidence = _to_float(_get_attr(evidence, "ocrconfidence", "ocr_confidence"))
+        ocr_processed = bool(_get_attr(evidence, "ocrprocessed", "ocr_processed", default=False))
 
         evidences.append(
             {
                 "index": idx,
-                "path": getattr(evidence, "file_path", None),
-                "category": category,
-                "caption": caption,
-                "display_title": display_title,
+                "evidenceid": evidence_id,
+                "evidence_id": evidence_id,
+                "path": file_path,
+                "filepath": file_path,
+                "file_path": file_path,
+                "filetype": file_type,
+                "file_type": file_type,
+                "evidencecategory": _get_attr(evidence, "evidencecategory", "evidence_category"),
+                "evidence_category": _get_attr(evidence, "evidencecategory", "evidence_category"),
+                "caption": _get_attr(evidence, "caption"),
+                "rawlabel": _get_attr(evidence, "rawlabel", "raw_label"),
+                "raw_label": _get_attr(evidence, "rawlabel", "raw_label"),
+                "normalizedlabel": _get_attr(evidence, "normalizedlabel", "normalized_label"),
+                "normalized_label": _get_attr(evidence, "normalizedlabel", "normalized_label"),
+                "evidenceslot": evidence_slot,
+                "evidence_slot": evidence_slot,
+                "componentcode": component_code,
+                "component_code": component_code,
+                "axlenumber": axle_number,
+                "axle_number": axle_number,
+                "side": side,
+                "isreference": is_reference,
+                "is_reference": is_reference,
+                "ocrextractedtext": _get_attr(evidence, "ocrextractedtext", "ocr_extracted_text"),
+                "ocr_extracted_text": _get_attr(evidence, "ocrextractedtext", "ocr_extracted_text"),
+                "ocrconfidence": ocr_confidence,
+                "ocr_confidence": ocr_confidence,
+                "ocrprocessed": ocr_processed,
+                "ocr_processed": ocr_processed,
+                "ocrtext": ocr_text,
                 "ocr_text": ocr_text,
-                "file_type": _safe_text(getattr(evidence, "file_type", None), "No registrado"),
-                "ocr_processed": bool(getattr(evidence, "ocr_processed", False)),
+                "category": category,
+                "displaytitle": display_title,
+                "display_title": display_title,
             }
         )
 
@@ -988,11 +1241,19 @@ def _build_evidences(
             {
                 "index": 1,
                 "path": None,
+                "filepath": None,
+                "file_path": None,
                 "category": "Evidencia pendiente",
+                "evidencecategory": "Evidencia pendiente",
+                "evidence_category": "Evidencia pendiente",
                 "caption": "Espacio reservado para evidencia fotográfica",
+                "displaytitle": "Foto 1. Espacio reservado para evidencia fotográfica",
                 "display_title": "Foto 1. Espacio reservado para evidencia fotográfica",
+                "ocrtext": "",
                 "ocr_text": "",
+                "filetype": "No registrado",
                 "file_type": "No registrado",
+                "ocrprocessed": False,
                 "ocr_processed": False,
             }
         ]
@@ -1000,8 +1261,89 @@ def _build_evidences(
     return evidences
 
 
-def _infer_general_condition(field_map: dict[str, str], fields: list[Any]) -> str:
-    explicit = _find_field(
+def serialize_field(field: Any) -> dict[str, Any]:
+    return {
+        "fieldid": _get_attr(field, "id"),
+        "field_id": _get_attr(field, "id"),
+        "fieldkey": _get_attr(field, "fieldkey", "field_key"),
+        "field_key": _get_attr(field, "fieldkey", "field_key"),
+        "fieldlabel": _get_attr(field, "fieldlabel", "field_label"),
+        "field_label": _get_attr(field, "fieldlabel", "field_label"),
+        "fieldgroup": _get_attr(field, "fieldgroup", "field_group"),
+        "field_group": _get_attr(field, "fieldgroup", "field_group"),
+        "expectedtype": _get_attr(field, "expectedtype", "expected_type"),
+        "expected_type": _get_attr(field, "expectedtype", "expected_type"),
+        "manualvalue": _get_attr(field, "manualvalue", "manual_value"),
+        "manual_value": _get_attr(field, "manualvalue", "manual_value"),
+        "ocrvalue": _get_attr(field, "ocrvalue", "ocr_value"),
+        "ocr_value": _get_attr(field, "ocrvalue", "ocr_value"),
+        "finalvalue": _get_attr(field, "finalvalue", "final_value"),
+        "final_value": _get_attr(field, "finalvalue", "final_value"),
+        "validationstatus": _get_attr(field, "validationstatus", "validation_status"),
+        "validation_status": _get_attr(field, "validationstatus", "validation_status"),
+        "validationmessage": _get_attr(field, "validationmessage", "validation_message"),
+        "validation_message": _get_attr(field, "validationmessage", "validation_message"),
+        "confidence": _to_float(_get_attr(field, "confidence")),
+    }
+
+
+def serialize_transcription(item: Any) -> dict[str, Any]:
+    return {
+        "transcriptionid": _get_attr(item, "id"),
+        "transcription_id": _get_attr(item, "id"),
+        "inspectionid": _get_attr(item, "inspectionid", "inspection_id"),
+        "inspection_id": _get_attr(item, "inspectionid", "inspection_id"),
+        "evidenceid": _get_attr(item, "evidenceid", "evidence_id"),
+        "evidence_id": _get_attr(item, "evidenceid", "evidence_id"),
+        "sourcefilepath": _get_attr(item, "sourcefilepath", "source_file_path"),
+        "source_file_path": _get_attr(item, "sourcefilepath", "source_file_path"),
+        "language": _get_attr(item, "language"),
+        "modelname": _get_attr(item, "modelname", "model_name"),
+        "model_name": _get_attr(item, "modelname", "model_name"),
+        "rawtext": _get_attr(item, "rawtext", "raw_text"),
+        "raw_text": _get_attr(item, "rawtext", "raw_text"),
+        "finaltext": _get_attr(item, "finaltext", "final_text"),
+        "final_text": _get_attr(item, "finaltext", "final_text"),
+        "confidence": _to_float(_get_attr(item, "confidence")),
+        "processed": bool(_get_attr(item, "processed", default=False)),
+        "editedmanually": bool(_get_attr(item, "editedmanually", "edited_manually", default=False)),
+        "edited_manually": bool(_get_attr(item, "editedmanually", "edited_manually", default=False)),
+    }
+
+
+def build_snapshot(
+    inspection: Inspection,
+    draft: ReportDraft,
+    fields: list[Any],
+    evidences: list[dict[str, Any]],
+    transcriptions: list[Any],
+    fixed_evidence_sections: list[dict[str, Any]],
+) -> dict[str, Any]:
+    inspection_id = _get_attr(inspection, "id")
+    return {
+        "draftid": _get_attr(draft, "id"),
+        "draft_id": _get_attr(draft, "id"),
+        "inspectionid": inspection_id,
+        "inspection_id": inspection_id,
+        "code": _get_attr(inspection, "code"),
+        "clientname": _get_attr(inspection, "clientname", "client_name"),
+        "equipmenttype": _get_attr(inspection, "equipmenttype", "equipment_type"),
+        "inspectiontype": _get_attr(inspection, "inspectiontype", "inspection_type"),
+        "inspectiondate": format_date(_get_attr(inspection, "inspectiondate", "inspection_date")),
+        "location": _get_attr(inspection, "location"),
+        "requestedby": _get_attr(inspection, "requestedby", "requested_by"),
+        "responsibleinspector": _get_attr(inspection, "responsibleinspector", "responsible_inspector"),
+        "status": _get_attr(inspection, "status"),
+        "fields": [serialize_field(field) for field in fields],
+        "evidences": evidences,
+        "transcriptions": [serialize_transcription(item) for item in transcriptions],
+        "fixedevidencesections": fixed_evidence_sections,
+        "fixed_evidence_sections": fixed_evidence_sections,
+    }
+
+
+def infer_general_condition(field_map: dict[str, str], fields: list[Any]) -> str:
+    explicit = find_field(
         field_map,
         [
             "condicion_general",
@@ -1014,7 +1356,7 @@ def _infer_general_condition(field_map: dict[str, str], fields: list[Any]) -> st
         default="",
     )
     if explicit:
-        normalized = _normalize_key(explicit)
+        normalized = normalize_key(explicit)
         if normalized in {"aceptado", "aprobado", "conforme", "ok"}:
             return "ACEPTADO"
         if normalized in {"rechazado"}:
@@ -1023,11 +1365,11 @@ def _infer_general_condition(field_map: dict[str, str], fields: list[Any]) -> st
             return "OBSERVADO"
         return explicit.upper()
 
-    issue_count = sum(1 for field in fields or [] if _has_issue_text(_field_best_value(field, default="")))
+    issue_count = sum(1 for field in fields or [] if has_issue_text(field_best_value(field, default="")))
     mismatch_count = sum(
         1
         for field in fields or []
-        if _safe_text(getattr(field, "validation_status", None), "pending").lower() == "mismatch"
+        if safe_text(_get_attr(field, "validationstatus", "validation_status"), "pending").lower() in {"mismatch", "mismatched"}
     )
 
     if issue_count > 0:
@@ -1038,75 +1380,91 @@ def _infer_general_condition(field_map: dict[str, str], fields: list[Any]) -> st
         return "REGISTRADO"
     return "PENDIENTE"
 
-
 def build_company_report_context(db: Session, draft_id: int) -> dict[str, Any]:
     draft = db.query(ReportDraft).filter(ReportDraft.id == draft_id).first()
     if not draft:
         raise ValueError("Report draft not found")
 
+    inspection_id = _get_attr(draft, "inspectionid", "inspection_id")
     inspection = (
         db.query(Inspection)
         .options(
             selectinload(Inspection.fields),
             selectinload(Inspection.evidences),
         )
-        .filter(Inspection.id == draft.inspection_id)
+        .filter(Inspection.id == inspection_id)
         .first()
     )
     if not inspection:
         raise ValueError("Inspection not found")
 
-    transcriptions = (
-        db.query(Transcription)
-        .filter(Transcription.inspection_id == inspection.id)
-        .order_by(Transcription.id.asc())
-        .all()
-    )
+    transcription_query = db.query(Transcription)
+    transcription_inspection_column = getattr(Transcription, "inspectionid", None)
+    if transcription_inspection_column is None:
+        transcription_inspection_column = getattr(Transcription, "inspection_id", None)
+    if transcription_inspection_column is not None:
+        transcription_query = transcription_query.filter(transcription_inspection_column == inspection.id)
+
+    transcriptions = transcription_query.order_by(Transcription.id.asc()).all()
 
     fields = list(getattr(inspection, "fields", []) or [])
     evidences_raw = list(getattr(inspection, "evidences", []) or [])
-    field_map = _get_field_map(inspection)
-    full_text = _draft_text(draft)
+    field_map = get_field_map(inspection)
+    full_text = draft_text(draft)
 
-    extracted_summary = _extract_section(full_text, ["2. OBJETIVO", "1. RESUMEN EJECUTIVO"], "")
-    extracted_scope = _extract_section(full_text, ["3. ALCANCE"], "")
-    extracted_protocol = _extract_section(full_text, ["4. PROTOCOLO EMPLEADO"], "")
-    extracted_frequency = _extract_section(full_text, ["5. FRECUENCIA DE INSPECCIÓN"], "")
-    extracted_standards = _extract_section(full_text, ["6. NORMAS Y CÓDIGOS DE REFERENCIA", "6. NORMAS Y CODIGOS DE REFERENCIA"], "")
-    extracted_equipment = _extract_section(full_text, ["7. EQUIPOS DE INSPECCIÓN EMPLEADOS", "7. EQUIPOS DE INSPECCIÓN EMPELADOS"], "")
-    extracted_criteria = _extract_section(full_text, ["8. CRITERIOS DE INSPECCIÓN"], "")
-    extracted_findings = _extract_section(
+    extracted_summary = extract_section(full_text, ["1. RESUMEN EJECUTIVO"], "")
+    extracted_objective = extract_section(full_text, ["2. OBJETIVO"], "")
+    extracted_scope = extract_section(full_text, ["3. ALCANCE"], "")
+    extracted_protocol = extract_section(full_text, ["4. PROTOCOLO EMPLEADO"], "")
+    extracted_frequency = extract_section(full_text, ["5. FRECUENCIA DE INSPECCIÓN"], "")
+    extracted_standards = extract_section(full_text, ["6. NORMAS Y CÓDIGOS DE REFERENCIA", "6. NORMAS Y CODIGOS DE REFERENCIA"], "")
+    extracted_equipment = extract_section(full_text, ["7. EQUIPOS DE INSPECCIÓN EMPLEADOS", "7. EQUIPOS DE INSPECCIÓN EMPELADOS"], "")
+    extracted_criteria = extract_section(full_text, ["8. CRITERIOS DE INSPECCIÓN"], "")
+    extracted_findings = extract_section(
         full_text,
-        ["9. RESULTADOS DE LA INSPECCIÓN", "3. HALLAZGOS PRINCIPALES", "2. IDENTIFICACIÓN DE CAMPOS CRÍTICOS", "3. DATOS CAPTURADOS EN INSPECCIÓN"],
+        [
+            "9. RESULTADOS DE LA INSPECCIÓN",
+            "3. HALLAZGOS PRINCIPALES",
+            "2. IDENTIFICACIÓN DE CAMPOS CRÍTICOS",
+            "3. DATOS CAPTURADOS EN INSPECCIÓN",
+        ],
         "",
     )
-    extracted_ocr = _extract_section(full_text, ["4. VALIDACIÓN OCR", "5. VALIDACIÓN OCR"], "")
-    extracted_voice = _extract_section(full_text, ["5. OBSERVACIONES TRANSCRITAS", "6. OBSERVACIONES TRANSCRITAS"], "")
-    extracted_recommendations = _extract_section(full_text, ["6. RECOMENDACIONES"], "")
-    extracted_conclusion = _extract_section(full_text, ["10. CONCLUSIONES", "7. INFORME REDACTADO", "7. CONCLUSIÓN PRELIMINAR"], "")
+    extracted_ocr = extract_section(full_text, ["4. VALIDACIÓN OCR", "5. VALIDACIÓN OCR"], "")
+    extracted_voice = extract_section(full_text, ["5. OBSERVACIONES TRANSCRITAS", "6. OBSERVACIONES TRANSCRITAS"], "")
+    extracted_recommendations = extract_section(full_text, ["6. RECOMENDACIONES"], "")
+    extracted_conclusion = extract_section(full_text, ["10. CONCLUSIONES", "7. INFORME REDACTADO", "7. CONCLUSIÓN PRELIMINAR"], "")
 
-    plate = _find_field(field_map, ["placa", "plate", "license_plate", "numero_placa"])
-    vin = _find_field(field_map, ["vin", "n_vin", "numero_vin", "no_vin"])
-    brand = _find_field(field_map, ["marca", "brand"])
-    year = _find_field(field_map, ["anio_fabricacion", "año_fabricacion", "year", "manufacture_year"])
-    mileage = _find_field(field_map, ["kilometraje", "mileage", "odometro", "odómetro"])
-    age = _find_field(field_map, ["antiguedad", "antigüedad", "age"])
-    axles = _find_field(field_map, ["numero_ejes", "n_ejes", "ejes", "axles"])
-    payload = _find_field(field_map, ["carga_util", "payload", "carga"])
-    net_weight = _find_field(field_map, ["peso_neto", "net_weight", "tara"])
-    king_pin_brand = _find_field(field_map, ["marca_king_pin", "king_pin_brand"])
-    king_pin_model = _find_field(field_map, ["modelo_king_pin", "king_pin_model"])
-    king_pin_serial = _find_field(field_map, ["serie_king_pin", "serial_king_pin", "king_pin_serial"])
-    model_display = plate if plate != "No registrado" else _find_field(field_map, ["modelo", "model"], default=_safe_text(getattr(inspection, "code", None)))
+    plate = find_field(field_map, ["placa", "plate", "license_plate", "numero_placa"])
+    vin = find_field(field_map, ["vin", "n_vin", "numero_vin", "no_vin"])
+    brand = find_field(field_map, ["marca", "brand"])
+    year = find_field(field_map, ["anio_fabricacion", "año_fabricacion", "year", "manufacture_year"])
+    mileage = find_field(field_map, ["kilometraje", "mileage", "odometro", "odómetro"])
+    age = find_field(field_map, ["antiguedad", "antigüedad", "age"])
+    axles = find_field(field_map, ["numero_ejes", "n_ejes", "ejes", "axles"])
+    payload = find_field(field_map, ["carga_util", "payload", "carga"])
+    net_weight = find_field(field_map, ["peso_neto", "net_weight", "tara"])
+    king_pin_brand = find_field(field_map, ["marca_king_pin", "king_pin_brand"])
+    king_pin_model = find_field(field_map, ["modelo_king_pin", "king_pin_model"])
+    king_pin_serial = find_field(field_map, ["serie_king_pin", "serial_king_pin", "king_pin_serial"])
+    model_display = (
+        plate
+        if plate != "No registrado"
+        else find_field(field_map, ["modelo", "model"], default=safe_text(_get_attr(inspection, "code")))
+    )
 
-    methods = _build_methods(evidences_raw, transcriptions, full_text)
-    general_condition = _infer_general_condition(field_map, fields)
-    evidences = _build_evidences(inspection, transcriptions)
-    findings = extracted_findings or _build_findings_from_fields(fields)
-    ocr_summary = extracted_ocr or _build_ocr_summary_from_fields(fields)
-    voice_summary = extracted_voice or _build_voice_summary_from_transcriptions(transcriptions)
-    recommendations = extracted_recommendations or _build_recommendations_from_fields(fields, evidences_raw, transcriptions)
-    conclusion = extracted_conclusion or _build_conclusion_from_state(
+    methods = build_methods(evidences_raw, transcriptions, full_text)
+    general_condition = infer_general_condition(field_map, fields)
+    evidences_payload = build_evidences(inspection, transcriptions)
+    fixed_evidence_sections = build_fixed_evidence_sections(evidences_raw)
+    fields_payload = [serialize_field(field) for field in fields]
+    transcription_payload = [serialize_transcription(item) for item in transcriptions]
+
+    findings = extracted_findings or build_findings_from_fields(fields)
+    ocr_summary = extracted_ocr or build_ocr_summary_from_fields(fields)
+    voice_summary = extracted_voice or build_voice_summary_from_transcriptions(transcriptions)
+    recommendations = extracted_recommendations or build_recommendations_from_fields(fields, evidences_raw, transcriptions)
+    conclusion = extracted_conclusion or build_conclusion_from_state(
         inspection=inspection,
         plate=plate,
         fields=fields,
@@ -1115,110 +1473,193 @@ def build_company_report_context(db: Session, draft_id: int) -> dict[str, Any]:
         general_condition=general_condition,
     )
 
-    requested_by = _safe_text(getattr(inspection, "requested_by", None), _safe_text(getattr(inspection, "client_name", None)))
-    location = _safe_text(getattr(inspection, "location", None), "No registrada")
-    inspection_date = getattr(inspection, "inspection_date", None)
-    inspection_date_text = _format_date(inspection_date)
-    inspection_date_long = _format_date_long(inspection_date)
+    requested_by = safe_text(
+        _get_attr(inspection, "requestedby", "requested_by"),
+        safe_text(_get_attr(inspection, "clientname", "client_name")),
+    )
+    location = safe_text(_get_attr(inspection, "location"), "No registrada")
+    inspection_date = _get_attr(inspection, "inspectiondate", "inspection_date")
+    inspection_date_text = format_date(inspection_date)
+    inspection_date_long = format_date_long(inspection_date)
 
-    intro_paragraph = _build_intro_paragraph(
+    objective = build_objective(inspection, extracted_objective or extracted_summary)
+    intro_paragraph = build_intro_paragraph(inspection=inspection, plate=plate, methods=methods)
+    frequency_rows = build_frequency_rows(inspection)
+    frequency_note = build_frequency_note(inspection, field_map, extracted_frequency)
+    standards = build_standards(extracted_standards)
+    inspection_equipment = build_inspection_equipment(evidences_raw, transcriptions, extracted_equipment)
+    criteria = build_criteria(extracted_criteria)
+    results = build_results_rows(inspection, fields, general_condition)
+
+    equipment_type = safe_text(_get_attr(inspection, "equipmenttype", "equipment_type"))
+    equipment_display = f"{equipment_type.upper()}: {model_display}"
+    report_code_display = build_report_code_display(inspection, field_map)
+
+    summary = extracted_summary or objective
+    snapshot = build_snapshot(
         inspection=inspection,
-        plate=plate,
-        methods=methods,
+        draft=draft,
+        fields=fields,
+        evidences=evidences_payload,
+        transcriptions=transcriptions,
+        fixed_evidence_sections=fixed_evidence_sections,
     )
 
-    frequency_rows = _build_frequency_rows(inspection)
-    frequency_note = _build_frequency_note(inspection, field_map, extracted_frequency)
-    standards = _build_standards(extracted_standards)
-    inspection_equipment = _build_inspection_equipment(evidences_raw, transcriptions, extracted_equipment)
-    criteria = _build_criteria(extracted_criteria)
-    results = _build_results_rows(inspection, fields, general_condition)
+    branding = {
+        "logo_path": COMPANY_INFO["logo_path"],
+        "logopath": COMPANY_INFO["logo_path"],
+        "report_title": "INFORME FINAL",
+        "reporttitle": "INFORME FINAL",
+        "report_code_display": report_code_display,
+        "reportcodedisplay": report_code_display,
+        "report_subtitle": "ENSAYOS NO DESTRUCTIVOS (END)",
+        "reportsubtitle": "ENSAYOS NO DESTRUCTIVOS (END)",
+        "equipment_display": equipment_display,
+        "equipmentdisplay": equipment_display,
+        "divider_lines": True,
+        "dividerlines": True,
+    }
 
-    equipment_type = _safe_text(getattr(inspection, "equipment_type", None))
-    equipment_label_prefix = equipment_type.upper()
-    equipment_display = f"{equipment_label_prefix}: {model_display}"
+    header = {
+        "report_title": "INFORME FINAL",
+        "reporttitle": "INFORME FINAL",
+        "report_code": safe_text(_get_attr(inspection, "code")),
+        "reportcode": safe_text(_get_attr(inspection, "code")),
+        "report_code_display": report_code_display,
+        "reportcodedisplay": report_code_display,
+        "report_subtitle": "ENSAYOS NO DESTRUCTIVOS (END)",
+        "reportsubtitle": "ENSAYOS NO DESTRUCTIVOS (END)",
+        "equipment_display": equipment_display,
+        "equipmentdisplay": equipment_display,
+        "inspection_type": safe_text(_get_attr(inspection, "inspectiontype", "inspection_type"), "No registrado").upper(),
+        "inspectiontype": safe_text(_get_attr(inspection, "inspectiontype", "inspection_type"), "No registrado").upper(),
+        "inspection_date": inspection_date_text,
+        "inspectiondate": inspection_date_text,
+        "inspection_date_long": inspection_date_long,
+        "inspectiondatelong": inspection_date_long,
+        "methods": methods,
+        "methods_display": " / ".join(methods),
+        "methodsdisplay": " / ".join(methods),
+        "general_condition": general_condition,
+        "generalcondition": general_condition,
+        "location": location.upper(),
+        "logo_path": COMPANY_INFO["logo_path"],
+        "logopath": COMPANY_INFO["logo_path"],
+    }
+
+    technical_info = {
+        "requested_by": requested_by,
+        "requestedby": requested_by,
+        "address": find_field(field_map, ["direccion", "address", "direccion_cliente"], location),
+        "service_responsible": safe_text(_get_attr(inspection, "responsibleinspector", "responsible_inspector"), "Inspector no registrado"),
+        "serviceresponsible": safe_text(_get_attr(inspection, "responsibleinspector", "responsible_inspector"), "Inspector no registrado"),
+        "inspection_date_text": inspection_date_text,
+        "inspectiondatetext": inspection_date_text,
+        "inspection_date_long": inspection_date_long,
+        "inspectiondatelong": inspection_date_long,
+        "intro_paragraph": intro_paragraph,
+        "introparagraph": intro_paragraph,
+        "signature_path": "app/static/reports/signatures/firma_responsable.png",
+    }
+
+    identification = {
+        "tipo_equipo": equipment_type,
+        "tipoequipo": equipment_type,
+        "placa": plate,
+        "marca": brand,
+        "vin": vin,
+        "anio_fabricacion": year,
+        "aniofabricacion": year,
+        "kilometraje": mileage,
+        "antiguedad": age,
+        "numero_ejes": axles,
+        "numeroejes": axles,
+        "carga_util": payload,
+        "cargautil": payload,
+        "peso_neto": net_weight,
+        "pesoneto": net_weight,
+        "marca_king_pin": king_pin_brand,
+        "marcakingpin": king_pin_brand,
+        "modelo_king_pin": king_pin_model,
+        "modelokingpin": king_pin_model,
+        "serie_king_pin": king_pin_serial,
+        "seriekingpin": king_pin_serial,
+    }
+
+    footer = {
+        "company_line": f"{COMPANY_INFO['name']} RUC: {COMPANY_INFO['ruc']}",
+        "companyline": f"{COMPANY_INFO['name']} RUC: {COMPANY_INFO['ruc']}",
+        "address_line": COMPANY_INFO["address"],
+        "addressline": COMPANY_INFO["address"],
+        "contact_line": f"{COMPANY_INFO['phones']} | {COMPANY_INFO['email']}",
+        "contactline": f"{COMPANY_INFO['phones']} | {COMPANY_INFO['email']}",
+        "website_line": COMPANY_INFO["website"],
+        "websiteline": COMPANY_INFO["website"],
+        "page_number_template": "{page_number} de {page_count}",
+        "pagenumbertemplate": "{page_number} de {page_count}",
+    }
+
+    document_meta = {
+        "show_footer": True,
+        "showfooter": True,
+        "show_dividers": True,
+        "showdividers": True,
+        "show_cover_logo": True,
+        "showcoverlogo": True,
+        "render_results_table": True,
+        "renderresultstable": True,
+        "render_evidence_gallery": True,
+        "renderevidencegallery": True,
+    }
 
     context = {
         "draft": draft,
         "inspection": inspection,
         "company": COMPANY_INFO,
-        "branding": {
-            "logo_path": COMPANY_INFO["logo_path"],
-            "report_title": "INFORME FINAL",
-            "report_code_display": _build_report_code_display(inspection, field_map),
-            "report_subtitle": "ENSAYOS NO DESTRUCTIVOS (END)",
-            "equipment_display": equipment_display,
-            "divider_lines": True,
-        },
-        "header": {
-            "report_title": "INFORME FINAL",
-            "report_code": _safe_text(getattr(inspection, "code", None)),
-            "report_code_display": _build_report_code_display(inspection, field_map),
-            "report_subtitle": "ENSAYOS NO DESTRUCTIVOS (END)",
-            "equipment_display": equipment_display,
-            "inspection_type": _safe_text(getattr(inspection, "inspection_type", None), "No registrado").upper(),
-            "inspection_date": inspection_date_text,
-            "inspection_date_long": inspection_date_long,
-            "methods": methods,
-            "methods_display": " / ".join(methods),
-            "general_condition": general_condition,
-            "location": location.upper(),
-            "logo_path": COMPANY_INFO["logo_path"],
-        },
-        "technical_info": {
-            "requested_by": requested_by,
-            "address": _find_field(field_map, ["direccion", "address", "direccion_cliente"], location),
-            "service_responsible": _safe_text(getattr(inspection, "responsible_inspector", None), "Inspector no registrado"),
-            "inspection_date_text": inspection_date_text,
-            "inspection_date_long": inspection_date_long,
-            "intro_paragraph": intro_paragraph,
-            "signature_path": "app/static/reports/signatures/firma_responsable.png",
-        },
-        "identification": {
-            "tipo_equipo": equipment_type,
-            "placa": plate,
-            "marca": brand,
-            "vin": vin,
-            "anio_fabricacion": year,
-            "kilometraje": mileage,
-            "antiguedad": age,
-            "numero_ejes": axles,
-            "carga_util": payload,
-            "peso_neto": net_weight,
-            "marca_king_pin": king_pin_brand,
-            "modelo_king_pin": king_pin_model,
-            "serie_king_pin": king_pin_serial,
-        },
-        "objective": _build_objective(inspection, extracted_summary),
-        "scope": extracted_scope.splitlines() if extracted_scope else _build_scope(inspection, methods, evidences_raw, transcriptions),
-        "protocol": _build_protocol(inspection, extracted_protocol),
+        "branding": branding,
+        "header": header,
+        "technical_info": technical_info,
+        "technicalinfo": technical_info,
+        "identification": identification,
+        "summary": summary,
+        "objective": objective,
+        "scope": extracted_scope.splitlines() if extracted_scope else build_scope(inspection, methods, evidences_raw, transcriptions),
+        "protocol": build_protocol(inspection, extracted_protocol),
         "frequency": frequency_note,
         "frequency_table": frequency_rows,
+        "frequencytable": frequency_rows,
         "standards": standards,
         "inspection_equipment": inspection_equipment,
+        "inspectionequipment": inspection_equipment,
         "inspection_equipment_table": inspection_equipment,
+        "inspectionequipmenttable": inspection_equipment,
         "criteria": criteria,
         "results": results,
         "conclusion": conclusion,
         "ocr_summary": ocr_summary,
+        "ocrsummary": ocr_summary,
         "voice_summary": voice_summary,
+        "voicesummary": voice_summary,
         "recommendations": recommendations,
-        "evidences": evidences,
+        "evidences": evidences_payload,
         "findings": findings,
-        "footer": {
-            "company_line": f"{COMPANY_INFO['name']} RUC: {COMPANY_INFO['ruc']}",
-            "address_line": COMPANY_INFO["address"],
-            "contact_line": f"{COMPANY_INFO['phones']} | {COMPANY_INFO['email']}",
-            "website_line": COMPANY_INFO["website"],
-            "page_number_template": "{page_number} de {page_count}",
-        },
-        "document_meta": {
-            "show_footer": True,
-            "show_dividers": True,
-            "show_cover_logo": True,
-            "render_results_table": True,
-            "render_evidence_gallery": True,
-        },
+        "fields": fields_payload,
+        "transcriptions": transcription_payload,
+        "fixed_evidence_sections": fixed_evidence_sections,
+        "fixedevidencesections": fixed_evidence_sections,
+        "snapshot": snapshot,
+        "footer": footer,
+        "document_meta": document_meta,
+        "documentmeta": document_meta,
     }
 
     return context
+
+def buildcompanyreportcontext(db: Session, draftid: int) -> dict[str, Any]:
+    return build_company_report_context(db, draftid)
+
+def buildfixedevidencesections(evidences: list[Any]) -> list[dict[str, Any]]:
+    return build_fixed_evidence_sections(evidences)
+
+def buildevidencesectionbyslots(evidences: list[Any]) -> str:
+    return build_evidence_section_by_slots(evidences)

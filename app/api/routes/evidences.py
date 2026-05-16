@@ -26,6 +26,11 @@ def create_evidence_endpoint(
     file: UploadFile = File(...),
     evidence_category: str = Form(...),
     caption: str | None = Form(None),
+    raw_label: str | None = Form(None),
+    component_code: str | None = Form(None),
+    axle_number: int | None = Form(None),
+    side: str | None = Form(None),
+    is_reference: bool = Form(False),
     db: Session = Depends(get_db),
 ):
     try:
@@ -35,6 +40,11 @@ def create_evidence_endpoint(
             file=file,
             evidence_category=evidence_category,
             caption=caption,
+            raw_label=raw_label,
+            component_code=component_code,
+            axle_number=axle_number,
+            side=side,
+            is_reference=is_reference,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

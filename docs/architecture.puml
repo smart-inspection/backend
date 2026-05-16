@@ -1,0 +1,47 @@
+@startuml
+title Diagrama de arquitectura lógica del sistema
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam defaultTextAlignment center
+
+actor Inspector
+actor Administrador
+
+rectangle "Frontend Web\nReact + TypeScript\nUI mobile-first" as Frontend
+
+package "Backend API\nFastAPI" {
+  [Rutas REST] as Routes
+  [Servicios de negocio] as Services
+  [Esquemas Pydantic] as Schemas
+  [Validación OCR] as ValidationService
+  [Generación de borrador] as DraftService
+  [Exportación PDF/DOCX] as ExportService
+}
+
+database "PostgreSQL" as DB
+folder "Almacenamiento de archivos\nimágenes / audios / reportes" as Storage
+
+cloud "Tesseract OCR" as OCR
+cloud "Whisper" as Whisper
+cloud "LangChain + Ollama + LLaMA 3" as LLM
+
+Inspector --> Frontend : registrar inspección\ncapturar campos\nsubir evidencias\ngenerar borrador
+Administrador --> Frontend : revisar estado\nconsultar historial\nexportar informe
+
+Frontend --> Routes : HTTP/JSON
+Routes --> Schemas : validación de entrada/salida
+Routes --> Services : invocación de casos de uso
+
+Services --> DB : CRUD de inspecciones\ny artefactos
+Services --> Storage : guardar/leer archivos
+Services --> OCR : extraer texto de imágenes
+Services --> Whisper : transcribir audio
+Services --> ValidationService : comparar OCR vs formulario
+Services --> DraftService : construir borrador
+DraftService --> LLM : generar texto técnico
+Services --> ExportService : producir PDF/DOCX
+ExportService --> Storage : guardar reporte exportado
+
+@enduml

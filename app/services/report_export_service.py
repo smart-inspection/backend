@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 from typing import Any
@@ -10,9 +9,8 @@ from sqlalchemy.orm import Session
 from app.services.report_template_service import build_company_report_context
 
 from docx import Document
-from docx.enum.section import WD_SECTION
 from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Inches, Pt, RGBColor
@@ -42,9 +40,27 @@ def _safe_text(value: Any, default: str = "") -> str:
     text = str(value).strip()
     return text if text else default
 
+def _dict_value(data: dict[str, Any], *keys: str, default: Any = None) -> Any:
+    for key in keys:
+        if key in data and data[key] is not None:
+            value = data[key]
+            if isinstance(value, str):
+                value = value.strip()
+                if value == "":
+                    continue
+            return value
+    return default
+
+def _escape_pdf_text(value: Any, default: str = "--") -> str:
+    return (
+        _safe_text(value, default)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
 def _normalize_filename(value: str) -> str:
-    text = _safe_text(value, "reporte")
-    text = text.lower().strip()
+    text = _safe_text(value, "reporte").lower().strip()
     text = re.sub(r"[^a-z0-9]+", "-", text)
     text = re.sub(r"-{2,}", "-", text).strip("-")
     return text or "reporte"
@@ -62,7 +78,20 @@ def _existing_image(path_value: str | None) -> str | None:
     return None
 
 def _chunked(items: list[Any], size: int) -> list[list[Any]]:
-    return [items[i : i + size] for i in range(0, len(items), size)]
+    return [items[i:i + size] for i in range(0, len(items), size)]
+
+def _slot_status_text(item: dict[str, Any]) -> str:
+    return "PRESENTE" if bool(_dict_value(item, "present", default=False)) else "PENDIENTE"
+
+def _slot_status_color_hex(item: dict[str, Any]) -> str:
+    return "1B9E5A" if bool(_dict_value(item, "present", default=False)) else "C62828"
+
+def _slot_status_fill_hex(item: dict[str, Any]) -> str:
+    return "EAF6EA" if bool(_dict_value(item, "present", default=False)) else "FDECEC"
+
+# =========================
+# DOCX helpers
+# =========================
 
 def _set_cell_text(cell, text: str, *, bold: bool = False, size: int = 10, align=WD_ALIGN_PARAGRAPH.LEFT):
     cell.text = ""
@@ -100,7 +129,7 @@ def _set_cell_border(cell, **kwargs):
             element = OxmlElement(tag)
             tc_borders.append(element)
 
-        for key in ["val", "sz", "space", "color"]:
+        for key in ("val", "sz", "space", "color"):
             if key in edge_data:
                 element.set(qn(f"w:{key}"), str(edge_data[key]))
 
@@ -287,7 +316,6 @@ def _add_cover_docx(document: Document, context: dict[str, Any]):
         align=WD_ALIGN_PARAGRAPH.CENTER,
         space_after=8,
     )
-
     _add_paragraph(
         document,
         branding["equipment_display"],
@@ -298,14 +326,14 @@ def _add_cover_docx(document: Document, context: dict[str, Any]):
         space_after=6,
     )
 
-    _add_paragraph(document, f"TIPO DE INSPECCIÓN: {header['inspection_type']}", bold=True, size=10, align=WD_ALIGN_PARAGRAPH.LEFT)
-    _add_paragraph(document, f"FECHA DE INSPECCIÓN: {header['inspection_date']}", bold=True, size=10, align=WD_ALIGN_PARAGRAPH.LEFT)
-    _add_paragraph(document, f"MÉTODOS EMPLEADOS: {header['methods_display']}", bold=True, size=10, align=WD_ALIGN_PARAGRAPH.LEFT)
-    _add_paragraph(document, f"CONDICIÓN GENERAL DEL EQUIPO: {header['general_condition']}", bold=True, size=10, align=WD_ALIGN_PARAGRAPH.LEFT)
+    _add_paragraph(document, f"TIPO DE INSPECCIÓN: {header['inspection_type']}", bold=True, size=10)
+    _add_paragraph(document, f"FECHA DE INSPECCIÓN: {header['inspection_date']}", bold=True, size=10)
+    _add_paragraph(document, f"MÉTODOS EMPLEADOS: {header['methods_display']}", bold=True, size=10)
+    _add_paragraph(document, f"CONDICIÓN GENERAL DEL EQUIPO: {header['general_condition']}", bold=True, size=10)
 
     _add_paragraph(
         document,
-        _safe_text(header.get("location", ""), "").upper(),
+        _safe_text(header.get("location"), "").upper(),
         bold=True,
         size=10,
         align=WD_ALIGN_PARAGRAPH.CENTER,
@@ -318,7 +346,15 @@ def _add_cover_docx(document: Document, context: dict[str, Any]):
 def _add_technical_intro_docx(document: Document, context: dict[str, Any]):
     tech = context["technical_info"]
 
-    _add_paragraph(document, "INFORME TÉCNICO", bold=True, underline=True, size=13, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=10)
+    _add_paragraph(
+        document,
+        "INFORME TÉCNICO",
+        bold=True,
+        underline=True,
+        size=13,
+        align=WD_ALIGN_PARAGRAPH.CENTER,
+        space_after=10,
+    )
 
     p = document.add_paragraph()
     p.paragraph_format.space_after = Pt(5)
@@ -364,7 +400,15 @@ def _add_technical_intro_docx(document: Document, context: dict[str, Any]):
     _add_paragraph(document, tech["intro_paragraph"], size=10.5, align=WD_ALIGN_PARAGRAPH.JUSTIFY, space_after=10)
 
 def _add_heading_docx(document: Document, title: str):
-    _add_paragraph(document, title, bold=True, size=11.5, align=WD_ALIGN_PARAGRAPH.LEFT, space_before=6, space_after=6)
+    _add_paragraph(
+        document,
+        title,
+        bold=True,
+        size=11.5,
+        align=WD_ALIGN_PARAGRAPH.LEFT,
+        space_before=6,
+        space_after=6,
+    )
 
 def _add_identification_docx(document: Document, context: dict[str, Any]):
     data = context["identification"]
@@ -528,13 +572,135 @@ def _add_results_table_docx(document: Document, context: dict[str, Any]):
 
     _apply_table_borders(table)
 
-def _add_evidences_docx(document: Document, context: dict[str, Any]):
-    evidences = context["evidences"]
+# =========================
+# DOCX evidence rendering
+# =========================
+
+def _render_docx_slot_image(cell, image_path: str | None, slot_label: str, present: bool):
+    cell.text = ""
+    p = cell.paragraphs[0]
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    if image_path:
+        run = p.add_run()
+        try:
+            run.add_picture(image_path, width=Inches(2.85))
+            return
+        except Exception:
+            pass
+
+    label = "EVIDENCIA PENDIENTE" if not present else "IMAGEN NO DISPONIBLE"
+    run = p.add_run(label)
+    run.bold = True
+    run.font.name = "Arial"
+    run.font.size = Pt(10)
+
+    p2 = cell.add_paragraph()
+    p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run2 = p2.add_run(_safe_text(slot_label, "Evidencia esperada"))
+    run2.font.name = "Arial"
+    run2.font.size = Pt(8.5)
+
+def _add_fixed_evidence_sections_docx_document(document: Document, context: dict[str, Any]) -> bool:
+    fixed_sections = list(context.get("fixed_evidence_sections") or [])
+    if not fixed_sections:
+        return False
+
+    document.add_page_break()
+    _add_paragraph(
+        document,
+        "RESULTADOS",
+        bold=True,
+        underline=True,
+        size=13,
+        align=WD_ALIGN_PARAGRAPH.CENTER,
+        space_after=8,
+    )
+
+    for section in fixed_sections:
+        section_title = _safe_text(
+            _dict_value(section, "section_title", "sectiontitle"),
+            "Sección de evidencias",
+        )
+
+        _add_paragraph(
+            document,
+            section_title,
+            bold=True,
+            size=11,
+            align=WD_ALIGN_PARAGRAPH.LEFT,
+            space_before=4,
+            space_after=6,
+        )
+
+        items = list(_dict_value(section, "items", default=[]) or [])
+        if not items:
+            _add_paragraph(
+                document,
+                "No se definieron evidencias esperadas para esta sección.",
+                size=9.5,
+                align=WD_ALIGN_PARAGRAPH.LEFT,
+                space_after=4,
+            )
+            continue
+
+        for item in items:
+            present = bool(_dict_value(item, "present", default=False))
+            slot_label = _safe_text(_dict_value(item, "slot_label", "slotlabel"), "Evidencia esperada")
+            caption = _safe_text(_dict_value(item, "caption"), "No registrada")
+            file_type = _safe_text(_dict_value(item, "file_type", "filetype"), "No registrado")
+            evidence_category = _safe_text(_dict_value(item, "evidence_category", "evidencecategory"), "No registrado")
+            ocr_text = _safe_text(_dict_value(item, "ocr_text", "ocrtext"), "Sin OCR")
+            file_path = _dict_value(item, "file_path", "filepath")
+            image_path = _existing_image(file_path)
+
+            table = document.add_table(rows=1, cols=2)
+            table.alignment = WD_TABLE_ALIGNMENT.CENTER
+            table.style = "Table Grid"
+
+            left_cell = table.rows[0].cells[0]
+            right_cell = table.rows[0].cells[1]
+
+            _render_docx_slot_image(left_cell, image_path, slot_label, present)
+
+            _shade_cell(right_cell, _slot_status_fill_hex(item))
+            _add_paragraph(right_cell, slot_label, bold=True, size=10, space_after=2)
+            _add_paragraph(
+                right_cell,
+                f"Estado: {_slot_status_text(item)}",
+                bold=True,
+                size=9,
+                color=_slot_status_color_hex(item),
+                space_after=2,
+            )
+            _add_paragraph(right_cell, f"Descripción: {caption}", size=9, space_after=1)
+            _add_paragraph(right_cell, f"Categoría: {evidence_category}", size=9, space_after=1)
+            _add_paragraph(right_cell, f"Tipo de archivo: {file_type}", size=9, space_after=1)
+            _add_paragraph(right_cell, f"Ruta: {_safe_text(file_path, 'Sin ruta')}", size=8.5, space_after=1)
+            _add_paragraph(right_cell, f"OCR: {ocr_text}", size=8.5, space_after=1)
+
+            _apply_table_borders(table)
+            document.add_paragraph()
+
+        document.add_paragraph()
+
+    return True
+
+def _add_evidences_docx_fallback(document: Document, context: dict[str, Any]):
+    evidences = context.get("evidences") or []
     if not evidences:
         return
 
     document.add_page_break()
-    _add_paragraph(document, "RESULTADOS", bold=True, underline=True, size=13, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=8)
+    _add_paragraph(
+        document,
+        "RESULTADOS",
+        bold=True,
+        underline=True,
+        size=13,
+        align=WD_ALIGN_PARAGRAPH.CENTER,
+        space_after=8,
+    )
 
     for chunk in _chunked(evidences, 2):
         table = document.add_table(rows=2, cols=2)
@@ -561,15 +727,20 @@ def _add_evidences_docx(document: Document, context: dict[str, Any]):
                 try:
                     run.add_picture(image_path, width=Inches(2.75))
                 except Exception:
-                    run.add_text("[Imagen no disponible]")
+                    p.add_run("Imagen no disponible")
             else:
-                p.add_run("[Imagen no disponible]")
+                p.add_run("Imagen no disponible")
 
             caption = evidence.get("display_title") or evidence.get("caption") or f"Foto {evidence.get('index', '')}"
             _set_cell_text(bottom_cell, caption, bold=True, size=9, align=WD_ALIGN_PARAGRAPH.CENTER)
 
         _apply_table_borders(table)
         document.add_paragraph()
+
+def _add_evidences_docx_document(document: Document, context: dict[str, Any]):
+    if _add_fixed_evidence_sections_docx_document(document, context):
+        return
+    _add_evidences_docx_fallback(document, context)
 
 def _build_docx_document(context: dict[str, Any]) -> Document:
     document = Document()
@@ -626,8 +797,12 @@ def _build_docx_document(context: dict[str, Any]) -> Document:
             space_after=8,
         )
 
-    _add_evidences_docx(document, context)
+    _add_evidences_docx_document(document, context)
     return document
+
+# =========================
+# PDF helpers
+# =========================
 
 def _pdf_styles():
     styles = getSampleStyleSheet()
@@ -709,17 +884,18 @@ def _pdf_styles():
 
 def _rl_paragraph(text: str, style, *, allow_markup: bool = False):
     text = _safe_text(text, "--")
-    if allow_markup:
-        text = text.replace("&", "&amp;")
-    else:
-        text = (
-            text.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-        )
+    if not allow_markup:
+        text = _escape_pdf_text(text, "--")
     return Paragraph(text, style)
 
-def _rl_table(data, widths, header_fill="#EDEDED", body_fill_1="#FFFFFF", body_fill_2="#F7F7F7", fontsize=8.6):
+def _rl_table(
+    data,
+    widths,
+    header_fill="#EDEDED",
+    body_fill_1="#FFFFFF",
+    body_fill_2="#F7F7F7",
+    fontsize=8.6,
+):
     table = Table(data, colWidths=widths, repeatRows=1)
     table.setStyle(
         TableStyle(
@@ -756,6 +932,148 @@ def _pdf_footer(canvas, doc, context: dict[str, Any]):
     canvas.drawRightString(width - 1.6 * cm, 0.32 * cm, f"{canvas.getPageNumber()}")
     canvas.restoreState()
 
+# =========================
+# PDF evidence rendering
+# =========================
+
+def _build_fixed_evidence_sections_pdf(context: dict[str, Any], styles) -> list[Any]:
+    fixed_sections = list(context.get("fixed_evidence_sections") or [])
+    if not fixed_sections:
+        return []
+
+    story: list[Any] = [
+        _rl_paragraph("<u><b>RESULTADOS</b></u>", styles["PdfTitleCenter"], allow_markup=True),
+        Spacer(1, 0.15 * cm),
+    ]
+
+    for section in fixed_sections:
+        section_title = _safe_text(_dict_value(section, "section_title", "sectiontitle"), "Sección de evidencias")
+        story.append(_rl_paragraph(section_title, styles["PdfSection"]))
+
+        items = list(_dict_value(section, "items", default=[]) or [])
+        if not items:
+            story.append(_rl_paragraph("No se definieron evidencias esperadas para esta sección.", styles["PdfBody"]))
+            story.append(Spacer(1, 0.12 * cm))
+            continue
+
+        for item in items:
+            present = bool(_dict_value(item, "present", default=False))
+            slot_label = _safe_text(_dict_value(item, "slot_label", "slotlabel"), "Evidencia esperada")
+            caption = _safe_text(_dict_value(item, "caption"), "No registrada")
+            file_type = _safe_text(_dict_value(item, "file_type", "filetype"), "No registrado")
+            evidence_category = _safe_text(_dict_value(item, "evidence_category", "evidencecategory"), "No registrado")
+            ocr_text = _safe_text(_dict_value(item, "ocr_text", "ocrtext"), "Sin OCR")
+            file_path = _dict_value(item, "file_path", "filepath")
+            image_path = _existing_image(file_path)
+
+            if image_path:
+                left_cell = RLImage(image_path, width=7.0 * cm, height=5.0 * cm)
+            else:
+                missing_label = "<b>IMAGEN NO DISPONIBLE</b>" if present else "<b>EVIDENCIA PENDIENTE</b>"
+                left_cell = _rl_paragraph(missing_label, styles["PdfSmallCenter"], allow_markup=True)
+
+            status_text = "PRESENTE" if present else "PENDIENTE"
+            status_color = "1B9E5A" if present else "C62828"
+
+            right_cell = [
+                _rl_paragraph(
+                    f"<b>Elemento esperado:</b> {_escape_pdf_text(slot_label)}",
+                    styles["PdfBodyLeft"],
+                    allow_markup=True,
+                ),
+                _rl_paragraph(
+                    f"<b>Estado:</b> <font color='#{status_color}'>{status_text}</font>",
+                    styles["PdfBodyLeft"],
+                    allow_markup=True,
+                ),
+                _rl_paragraph(
+                    f"<b>Descripción:</b> {_escape_pdf_text(caption)}",
+                    styles["PdfBodyLeft"],
+                    allow_markup=True,
+                ),
+                _rl_paragraph(
+                    f"<b>Categoría:</b> {_escape_pdf_text(evidence_category)}",
+                    styles["PdfBodyLeft"],
+                    allow_markup=True,
+                ),
+                _rl_paragraph(
+                    f"<b>Tipo:</b> {_escape_pdf_text(file_type)}",
+                    styles["PdfBodyLeft"],
+                    allow_markup=True,
+                ),
+            ]
+
+            slot_table = Table([[left_cell, right_cell]], colWidths=[7.2 * cm, 9.4 * cm])
+            slot_table.setStyle(
+                TableStyle(
+                    [
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                        ("TOPPADDING", (0, 0), (-1, -1), 5),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                        ("BACKGROUND", (1, 0), (1, 0), colors.HexColor("#EAF6EA" if present else "#FDECEC")),
+                    ]
+                )
+            )
+
+            story.append(KeepTogether([slot_table, Spacer(1, 0.18 * cm)]))
+
+        story.append(Spacer(1, 0.15 * cm))
+
+    return story
+
+def _build_pdf_evidences_fallback(context: dict[str, Any], styles) -> list[Any]:
+    evidences = context.get("evidences") or []
+    if not evidences:
+        return []
+
+    story: list[Any] = [
+        _rl_paragraph("<u><b>RESULTADOS</b></u>", styles["PdfTitleCenter"], allow_markup=True),
+        Spacer(1, 0.15 * cm),
+    ]
+
+    for chunk in _chunked(evidences, 2):
+        image_row = []
+        caption_row = []
+
+        for evidence in chunk:
+            img_path = _existing_image(evidence.get("path"))
+            if img_path:
+                image_row.append(RLImage(img_path, width=7.3 * cm, height=5.2 * cm))
+            else:
+                image_row.append(_rl_paragraph("Imagen no disponible", styles["PdfSmallCenter"]))
+
+            caption = evidence.get("display_title") or evidence.get("caption") or f"Foto {evidence.get('index')}"
+            caption_row.append(
+                _rl_paragraph(
+                    f"<b>{_escape_pdf_text(caption)}</b>",
+                    styles["PdfSmallCenter"],
+                    allow_markup=True,
+                )
+            )
+
+        if len(image_row) == 1:
+            image_row.append("")
+            caption_row.append("")
+
+        table = Table([image_row, caption_row], colWidths=[8.0 * cm, 8.0 * cm])
+        table.setStyle(
+            TableStyle(
+                [
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ]
+            )
+        )
+        story.append(KeepTogether([table, Spacer(1, 0.2 * cm)]))
+
+    return story
+
 def _build_pdf_story(context: dict[str, Any]):
     styles = _pdf_styles()
     story = []
@@ -772,66 +1090,112 @@ def _build_pdf_story(context: dict[str, Any]):
         story.append(RLImage(logo_path, width=4.8 * cm, height=2.1 * cm))
         story.append(Spacer(1, 0.15 * cm))
 
-    story.append(_rl_paragraph(branding["report_title"], styles["PdfTitleCenter"]))
-    story.append(_rl_paragraph(branding["report_code_display"], styles["PdfCodeCenter"]))
-    story.append(_rl_paragraph(branding["report_subtitle"], styles["PdfCodeCenter"]))
+    story.append(_rl_paragraph(_safe_text(branding["report_title"]), styles["PdfTitleCenter"]))
+    story.append(_rl_paragraph(_safe_text(branding["report_code_display"]), styles["PdfCodeCenter"]))
+    story.append(_rl_paragraph(_safe_text(branding["report_subtitle"]), styles["PdfCodeCenter"]))
     story.append(Spacer(1, 0.15 * cm))
-    story.append(_rl_paragraph(f"<u>{branding['equipment_display']}</u>", styles["PdfCodeCenter"], allow_markup=True))
-
-    story.append(_rl_paragraph(f"<b>TIPO DE INSPECCIÓN:</b> {header['inspection_type']}", styles["PdfBodyLeft"],
-                               allow_markup=True))
-    story.append(_rl_paragraph(f"<b>FECHA DE INSPECCIÓN:</b> {header['inspection_date']}", styles["PdfBodyLeft"],
-                               allow_markup=True))
-    story.append(_rl_paragraph(f"<b>MÉTODOS EMPLEADOS:</b> {header['methods_display']}", styles["PdfBodyLeft"],
-                               allow_markup=True))
     story.append(
-        _rl_paragraph(f"<b>CONDICIÓN GENERAL DEL EQUIPO:</b> {header['general_condition']}", styles["PdfBodyLeft"],
-                      allow_markup=True))
+        _rl_paragraph(
+            f"<u>{_escape_pdf_text(branding['equipment_display'])}</u>",
+            styles["PdfCodeCenter"],
+            allow_markup=True,
+        )
+    )
+
+    story.append(
+        _rl_paragraph(
+            f"<b>TIPO DE INSPECCIÓN:</b> {_escape_pdf_text(header['inspection_type'])}",
+            styles["PdfBodyLeft"],
+            allow_markup=True,
+        )
+    )
+    story.append(
+        _rl_paragraph(
+            f"<b>FECHA DE INSPECCIÓN:</b> {_escape_pdf_text(header['inspection_date'])}",
+            styles["PdfBodyLeft"],
+            allow_markup=True,
+        )
+    )
+    story.append(
+        _rl_paragraph(
+            f"<b>MÉTODOS EMPLEADOS:</b> {_escape_pdf_text(header['methods_display'])}",
+            styles["PdfBodyLeft"],
+            allow_markup=True,
+        )
+    )
+    story.append(
+        _rl_paragraph(
+            f"<b>CONDICIÓN GENERAL DEL EQUIPO:</b> {_escape_pdf_text(header['general_condition'])}",
+            styles["PdfBodyLeft"],
+            allow_markup=True,
+        )
+    )
     story.append(Spacer(1, 0.35 * cm))
-    story.append(_rl_paragraph(header["location"], styles["PdfSmallCenter"]))
+    story.append(_rl_paragraph(_safe_text(header["location"]), styles["PdfSmallCenter"]))
     story.append(PageBreak())
 
     story.append(_rl_paragraph("<u><b>INFORME TÉCNICO</b></u>", styles["PdfTitleCenter"], allow_markup=True))
     story.append(
-        _rl_paragraph(f"<b>SOLICITADO POR:</b> {tech['requested_by']}", styles["PdfBodyLeft"], allow_markup=True))
-    story.append(_rl_paragraph(f"<b>DIRECCIÓN:</b> {tech['address']}", styles["PdfBodyLeft"], allow_markup=True))
-    story.append(_rl_paragraph(f"<b>RESPONSABLE DEL SERVICIO:</b> {tech['service_responsible']}", styles["PdfBodyLeft"],
-                               allow_markup=True))
-    story.append(_rl_paragraph(f"<b>FECHA DE INSPECCIÓN:</b> {tech['inspection_date_long']}", styles["PdfBodyLeft"],
-                               allow_markup=True))
+        _rl_paragraph(
+            f"<b>SOLICITADO POR:</b> {_escape_pdf_text(tech['requested_by'])}",
+            styles["PdfBodyLeft"],
+            allow_markup=True,
+        )
+    )
+    story.append(
+        _rl_paragraph(
+            f"<b>DIRECCIÓN:</b> {_escape_pdf_text(tech['address'])}",
+            styles["PdfBodyLeft"],
+            allow_markup=True,
+        )
+    )
+    story.append(
+        _rl_paragraph(
+            f"<b>RESPONSABLE DEL SERVICIO:</b> {_escape_pdf_text(tech['service_responsible'])}",
+            styles["PdfBodyLeft"],
+            allow_markup=True,
+        )
+    )
+    story.append(
+        _rl_paragraph(
+            f"<b>FECHA DE INSPECCIÓN:</b> {_escape_pdf_text(tech['inspection_date_long'])}",
+            styles["PdfBodyLeft"],
+            allow_markup=True,
+        )
+    )
     story.append(Spacer(1, 0.1 * cm))
     story.append(HRFlowable(width="100%", thickness=0.7, color=colors.black))
     story.append(Spacer(1, 0.15 * cm))
-    story.append(_rl_paragraph(tech["intro_paragraph"], styles["PdfBody"]))
+    story.append(_rl_paragraph(_safe_text(tech["intro_paragraph"]), styles["PdfBody"]))
 
     story.append(_rl_paragraph("1. IDENTIFICACIÓN DEL EQUIPO INSPECCIONADO", styles["PdfSection"]))
     ident_lines = [
-        f"<b>Tipo de Equipo:</b> {identification['tipo_equipo']}",
-        f"<b>N° de placa:</b> {identification['placa']}",
-        f"<b>Marca:</b> {identification['marca']}",
-        f"<b>N° de VIN:</b> {identification['vin']}",
-        f"<b>Año de fabricación:</b> {identification['anio_fabricacion']}",
-        f"<b>Kilometraje de Referencia:</b> {identification['kilometraje']}",
-        f"<b>Antigüedad:</b> {identification['antiguedad']}",
-        f"<b>N° de Ejes:</b> {identification['numero_ejes']}",
-        f"<b>Carga Útil:</b> {identification['carga_util']}",
-        f"<b>Peso Neto:</b> {identification['peso_neto']}",
-        f"<b>Marca de King pin:</b> {identification['marca_king_pin']}",
-        f"<b>Modelo de King Pin:</b> {identification['modelo_king_pin']}",
-        f"<b>N° de Serie de King pin:</b> {identification['serie_king_pin']}",
+        f"<b>Tipo de Equipo:</b> {_escape_pdf_text(identification['tipo_equipo'])}",
+        f"<b>N° de placa:</b> {_escape_pdf_text(identification['placa'])}",
+        f"<b>Marca:</b> {_escape_pdf_text(identification['marca'])}",
+        f"<b>N° de VIN:</b> {_escape_pdf_text(identification['vin'])}",
+        f"<b>Año de fabricación:</b> {_escape_pdf_text(identification['anio_fabricacion'])}",
+        f"<b>Kilometraje de Referencia:</b> {_escape_pdf_text(identification['kilometraje'])}",
+        f"<b>Antigüedad:</b> {_escape_pdf_text(identification['antiguedad'])}",
+        f"<b>N° de Ejes:</b> {_escape_pdf_text(identification['numero_ejes'])}",
+        f"<b>Carga Útil:</b> {_escape_pdf_text(identification['carga_util'])}",
+        f"<b>Peso Neto:</b> {_escape_pdf_text(identification['peso_neto'])}",
+        f"<b>Marca de King pin:</b> {_escape_pdf_text(identification['marca_king_pin'])}",
+        f"<b>Modelo de King Pin:</b> {_escape_pdf_text(identification['modelo_king_pin'])}",
+        f"<b>N° de Serie de King pin:</b> {_escape_pdf_text(identification['serie_king_pin'])}",
     ]
     for line in ident_lines:
         story.append(_rl_paragraph(line, styles["PdfBodyLeft"], allow_markup=True))
 
     story.append(_rl_paragraph("2. OBJETIVO", styles["PdfSection"]))
-    story.append(_rl_paragraph(context["objective"], styles["PdfBody"]))
+    story.append(_rl_paragraph(_safe_text(context["objective"]), styles["PdfBody"]))
 
     story.append(_rl_paragraph("3. ALCANCE", styles["PdfSection"]))
     for item in context["scope"]:
-        story.append(_rl_paragraph(f"- {item}", styles["PdfBodyLeft"]))
+        story.append(_rl_paragraph(f"- {_safe_text(item)}", styles["PdfBodyLeft"]))
 
     story.append(_rl_paragraph("4. PROTOCOLO EMPLEADO", styles["PdfSection"]))
-    story.append(_rl_paragraph(context["protocol"], styles["PdfBody"]))
+    story.append(_rl_paragraph(_safe_text(context["protocol"]), styles["PdfBody"]))
 
     story.append(_rl_paragraph("5. FRECUENCIA DE INSPECCIÓN", styles["PdfSection"]))
     freq_data = [[
@@ -845,11 +1209,11 @@ def _build_pdf_story(context: dict[str, Any]):
 
     story.append(_rl_table(freq_data, [5.8 * cm, 4.4 * cm, 3.4 * cm, 2.8 * cm], fontsize=8.3))
     story.append(Spacer(1, 0.12 * cm))
-    story.append(_rl_paragraph(context["frequency"], styles["PdfBody"]))
+    story.append(_rl_paragraph(_safe_text(context["frequency"]), styles["PdfBody"]))
 
     story.append(_rl_paragraph("6. NORMAS Y CÓDIGOS DE REFERENCIA", styles["PdfSection"]))
     for item in context["standards"]:
-        story.append(_rl_paragraph(f"• {item}", styles["PdfBodyLeft"]))
+        story.append(_rl_paragraph(f"• {_safe_text(item)}", styles["PdfBodyLeft"]))
 
     story.append(_rl_paragraph("7. EQUIPOS DE INSPECCIÓN EMPLEADOS", styles["PdfSection"]))
     equipment = context["inspection_equipment"]
@@ -864,23 +1228,35 @@ def _build_pdf_story(context: dict[str, Any]):
 
     story.append(_rl_paragraph("8. CRITERIOS DE INSPECCIÓN", styles["PdfSection"]))
     criteria = context["criteria"]
-    story.append(_rl_paragraph(
-        f"<font color='#1B9E5A'><b><i>ACEPTADO:</i></b></font> {criteria['accepted']}",
-        styles["PdfBodyLeft"],
-        allow_markup=True,
-    ))
-    story.append(_rl_paragraph(
-        f"<font color='#1F77B4'><b><i>RECHAZADO:</i></b></font> {criteria['rejected']}",
-        styles["PdfBodyLeft"],
-        allow_markup=True,
-    ))
+    story.append(
+        _rl_paragraph(
+            f"<font color='#1B9E5A'><b><i>ACEPTADO:</i></b></font> {_escape_pdf_text(criteria['accepted'])}",
+            styles["PdfBodyLeft"],
+            allow_markup=True,
+        )
+    )
+    story.append(
+        _rl_paragraph(
+            f"<font color='#1F77B4'><b><i>RECHAZADO:</i></b></font> {_escape_pdf_text(criteria['rejected'])}",
+            styles["PdfBodyLeft"],
+            allow_markup=True,
+        )
+    )
     for item in criteria.get("rejected_items", []):
-        story.append(_rl_paragraph(f"• <i>{item}</i>", styles["PdfBodyLeft"], allow_markup=True))
-    story.append(_rl_paragraph(
-        f"<font color='#D4A300'><b><i>RETIRO DE LA OPERACIÓN:</i></b></font> <i>{criteria['retirement']}</i>",
-        styles["PdfBodyLeft"],
-        allow_markup=True,
-    ))
+        story.append(
+            _rl_paragraph(
+                f"• <i>{_escape_pdf_text(item)}</i>",
+                styles["PdfBodyLeft"],
+                allow_markup=True,
+            )
+        )
+    story.append(
+        _rl_paragraph(
+            f"<font color='#D4A300'><b><i>RETIRO DE LA OPERACIÓN:</i></b></font> <i>{_escape_pdf_text(criteria['retirement'])}</i>",
+            styles["PdfBodyLeft"],
+            allow_markup=True,
+        )
+    )
 
     story.append(_rl_paragraph("9. RESULTADOS DE LA INSPECCIÓN", styles["PdfSection"]))
     results_data = [["Equipo", "Componente", "Condición", "Observaciones", "Acción Correctiva"]]
@@ -895,53 +1271,30 @@ def _build_pdf_story(context: dict[str, Any]):
     story.append(_rl_table(results_data, [3.0 * cm, 3.8 * cm, 2.2 * cm, 4.0 * cm, 3.0 * cm], fontsize=7.8))
 
     story.append(_rl_paragraph("10. CONCLUSIONES", styles["PdfSection"]))
-    story.append(_rl_paragraph(context["conclusion"], styles["PdfBody"]))
+    story.append(_rl_paragraph(_safe_text(context["conclusion"]), styles["PdfBody"]))
 
     if signature_path:
         story.append(Spacer(1, 0.4 * cm))
         story.append(RLImage(signature_path, width=4.0 * cm, height=2.0 * cm))
-        story.append(_rl_paragraph(f"<b>{tech['service_responsible']}</b>", styles["PdfSmallCenter"], allow_markup=True))
+        story.append(
+            _rl_paragraph(f"<b>{tech['service_responsible']}</b>", styles["PdfSmallCenter"], allow_markup=True))
         story.append(_rl_paragraph("RESPONSABLE DEL SERVICIO", styles["PdfSmallCenter"]))
 
-    evidences = context["evidences"]
-    if evidences:
+    fixed_evidence_story = _build_fixed_evidence_sections_pdf(context, styles)
+    if fixed_evidence_story:
         story.append(PageBreak())
-        story.append(_rl_paragraph("<u><b>RESULTADOS</b></u>", styles["PdfTitleCenter"], allow_markup=True))
-
-        for chunk in _chunked(evidences, 2):
-            block = []
-            image_row = []
-            caption_row = []
-
-            for evidence in chunk:
-                img_path = _existing_image(evidence.get("path"))
-                if img_path:
-                    image_row.append(RLImage(img_path, width=7.3 * cm, height=5.2 * cm))
-                else:
-                    image_row.append(_rl_paragraph("Imagen no disponible", styles["PdfSmallCenter"]))
-
-                caption = evidence.get("display_title") or evidence.get("caption") or f"Foto {evidence.get('index', '')}"
-                caption_row.append(_rl_paragraph(f"<b>{caption}</b>", styles["PdfSmallCenter"], allow_markup=True))
-
-            if len(image_row) == 1:
-                image_row.append("")
-                caption_row.append("")
-
-            table = Table([image_row, caption_row], colWidths=[8.0 * cm, 8.0 * cm])
-            table.setStyle(
-                TableStyle(
-                    [
-                        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                        ("TOPPADDING", (0, 0), (-1, -1), 5),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-                    ]
-                )
-            )
-            story.append(KeepTogether([table, Spacer(1, 0.2 * cm)]))
+        story.extend(fixed_evidence_story)
+    else:
+        fallback_story = _build_pdf_evidences_fallback(context, styles)
+        if fallback_story:
+            story.append(PageBreak())
+            story.extend(fallback_story)
 
     return story
+
+# =========================
+# Exports
+# =========================
 
 def export_report_docx(db: Session, draft_id: int, output_path: str | Path | None = None) -> str:
     context = build_company_report_context(db, draft_id)

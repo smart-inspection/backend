@@ -18,3 +18,9 @@ python-docx==1.1.2
 reportlab==4.4.1
 
 httpx==0.28.1
+
+opencv-python-headless==4.10.0.84
+numpy==2.1.1
+
+paddleocr
+paddlepaddle

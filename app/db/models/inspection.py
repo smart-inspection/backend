@@ -21,7 +21,7 @@ class Inspection(Base):
     updated_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
-        onupdate=func.now()
+        onupdate=func.now(),
     )
 
     fields = relationship("InspectionField", back_populates="inspection", cascade="all, delete-orphan")
