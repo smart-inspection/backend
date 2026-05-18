@@ -47,3 +47,15 @@ def update_inspection_field_endpoint(
     if not field:
         raise HTTPException(status_code=404, detail="Inspection field not found")
     return field
+
+@router.put("/{inspection_id}/fields/{field_id}", response_model=InspectionFieldResponse)
+def update_inspection_field_put_endpoint(
+    inspection_id: int,
+    field_id: int,
+    payload: InspectionFieldUpdate,
+    db: Session = Depends(get_db),
+):
+    field = update_inspection_field(db, inspection_id, field_id, payload)
+    if not field:
+        raise HTTPException(status_code=404, detail="Inspection field not found")
+    return field
