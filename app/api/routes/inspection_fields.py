@@ -2,10 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
-from app.schemas.inspection_field import InspectionFieldCreate, InspectionFieldResponse
+from app.schemas.inspection_field import InspectionFieldCreate, InspectionFieldResponse, InspectionFieldUpdate
 from app.services.inspection_field_service import (
     create_inspection_field,
-    list_inspection_fields,
+    list_inspection_fields, update_inspection_field,
 )
 
 router = APIRouter(prefix="/inspections", tags=["inspection-fields"])
@@ -35,3 +35,15 @@ def list_inspection_fields_endpoint(
     db: Session = Depends(get_db)
 ):
     return list_inspection_fields(db, inspection_id)
+
+@router.patch("/{inspection_id}/fields/{field_id}", response_model=InspectionFieldResponse)
+def update_inspection_field_endpoint(
+    inspection_id: int,
+    field_id: int,
+    payload: InspectionFieldUpdate,
+    db: Session = Depends(get_db),
+):
+    field = update_inspection_field(db, inspection_id, field_id, payload)
+    if not field:
+        raise HTTPException(status_code=404, detail="Inspection field not found")
+    return field

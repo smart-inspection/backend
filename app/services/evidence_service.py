@@ -1,5 +1,6 @@
 from decimal import Decimal
 from typing import Any
+from datetime import datetime, timezone
 
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
@@ -7,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Evidence, Inspection
 from app.services.evidence_label_service import resolve_evidence_label
 from app.services.storage_service import save_evidence_upload
+from app.schemas.evidence import EvidenceUpdate
 
 def get_inspection(db: Session, inspection_id: int) -> Inspection | None:
     return db.query(Inspection).filter(Inspection.id == inspection_id).first()
@@ -112,3 +114,61 @@ def list_evidences(db: Session, inspection_id: int) -> list[Evidence]:
 
 def get_evidence(db: Session, evidence_id: int) -> Evidence | None:
     return db.query(Evidence).filter(Evidence.id == evidence_id).first()
+
+def update_evidence(
+    db: Session,
+    evidence_id: int,
+    payload: EvidenceUpdate,
+) -> Evidence | None:
+    evidence = get_evidence(db, evidence_id)
+    if not evidence:
+        return None
+
+    data = payload.model_dump(exclude_unset=True)
+
+    if "evidence_category" in data:
+        evidence.evidence_category = data["evidence_category"]
+
+    if "caption" in data:
+        evidence.caption = data["caption"]
+
+    if "ocr_extracted_text" in data:
+        evidence.ocr_extracted_text = data["ocr_extracted_text"]
+        evidence.ocr_processed = True
+        evidence.ocr_last_processed_at = datetime.now(timezone.utc)
+
+    if "ocr_confidence" in data:
+        evidence.ocr_confidence = data["ocr_confidence"]
+
+    relabel_fields = {"raw_label", "component_code", "axle_number", "side", "is_reference"}
+    should_relabel = any(key in data for key in relabel_fields)
+
+    if should_relabel:
+        raw_label = data.get("raw_label", evidence.raw_label)
+        component_code = data.get("component_code", evidence.component_code)
+        axle_number = data.get("axle_number", evidence.axle_number)
+        side = data.get("side", evidence.side)
+        is_reference = data.get("is_reference", evidence.is_reference)
+
+        label_result = resolve_evidence_label(
+            raw_label=raw_label,
+            component_code=component_code,
+            axle_number=axle_number,
+            side=side,
+            is_reference=is_reference,
+        )
+
+        evidence.raw_label = label_result.raw_label
+        evidence.normalized_label = label_result.normalized_label
+        evidence.evidence_slot = label_result.evidence_slot
+        evidence.component_code = label_result.component_code
+        evidence.axle_number = label_result.axle_number
+        evidence.side = label_result.side
+        evidence.is_reference = label_result.is_reference
+        evidence.label_confidence = label_result.label_confidence
+        evidence.metadata_json = label_result.metadata_json
+
+    db.add(evidence)
+    db.commit()
+    db.refresh(evidence)
+    return evidence
