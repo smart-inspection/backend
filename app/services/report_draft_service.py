@@ -1,15 +1,42 @@
 import json
-import os
-import re
 from time import perf_counter
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama import ChatOllama
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import settings
 from app.db.models import Inspection, Transcription, ReportDraft
 from app.services.report_status_service import register_report_event
 
+class DraftSections(BaseModel):
+    summary: str = Field(description="Resumen ejecutivo en un párrafo")
+    findings: str = Field(description="Hallazgos principales redactados")
+    recommendations: str = Field(description="Recomendaciones técnicas concretas")
+    conclusion: str = Field(description="Conclusión preliminar del borrador")
+    final_report: str = Field(description="Informe técnico completo redactado en varios párrafos")
+
+SECTION_FALLBACKS = {
+    "summary": (
+        "No fue posible construir un resumen ejecutivo completo con la información disponible. "
+        "Se recomienda revisión humana del borrador."
+    ),
+    "findings": (
+        "No se identificaron hallazgos suficientemente sustentados con la información disponible."
+    ),
+    "recommendations": (
+        "No se identifican recomendaciones técnicas adicionales con la información disponible."
+    ),
+    "conclusion": (
+        "No fue posible elaborar una conclusión amplia con consistencia suficiente; "
+        "se recomienda revisión humana del borrador."
+    ),
+    "final_report": (
+        "No fue posible redactar el informe completo con consistencia suficiente; "
+        "se recomienda revisión humana del borrador."
+    ),
+}
 
 def _safe(value, default="No registrado"):
     if value is None:
@@ -18,14 +45,12 @@ def _safe(value, default="No registrado"):
         return default
     return str(value)
 
-
 def _pick_attr(obj, candidates, default="No registrado"):
     for name in candidates:
         value = getattr(obj, name, None)
         if value is not None and str(value).strip() != "":
             return str(value)
     return default
-
 
 def _field_value(field):
     for attr in ("final_value", "manual_value", "ocr_value"):
@@ -34,6 +59,14 @@ def _field_value(field):
             return str(value)
     return "No registrado"
 
+def _normalize_llm_text(value) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+def _coalesce_llm_section(key: str, value) -> str:
+    normalized = _normalize_llm_text(value)
+    return normalized or SECTION_FALLBACKS[key]
 
 def _build_general_section(inspection) -> str:
     lines = [
@@ -50,7 +83,6 @@ def _build_general_section(inspection) -> str:
     ]
     return "\n".join(lines)
 
-
 def _build_fields_section(fields) -> str:
     if not fields:
         return "No se registraron campos estructurados para esta inspección."
@@ -63,7 +95,6 @@ def _build_fields_section(fields) -> str:
         value = _field_value(field)
         lines.append(f"- [{group}] {label}: {value} (tipo esperado: {expected_type})")
     return "\n".join(lines)
-
 
 def _build_critical_section(fields) -> str:
     if not fields:
@@ -82,7 +113,6 @@ def _build_critical_section(fields) -> str:
             lines.append(f"- {label}: {_field_value(field)}")
 
     return "\n".join(lines) if lines else "No se registraron campos críticos identificables."
-
 
 def _build_ocr_section(fields) -> str:
     if not fields:
@@ -124,7 +154,6 @@ def _build_ocr_section(fields) -> str:
     ]
     return "\n".join(summary)
 
-
 def _build_transcription_section(transcriptions) -> str:
     if not transcriptions:
         return "No se registraron transcripciones asociadas."
@@ -145,7 +174,6 @@ def _build_transcription_section(transcriptions) -> str:
         )
     return "\n\n".join(blocks)
 
-
 def _build_evidence_section(evidences) -> str:
     if not evidences:
         return "No se registraron evidencias asociadas."
@@ -162,7 +190,6 @@ def _build_evidence_section(evidences) -> str:
             f"- [{category}] {caption} | tipo={file_type} | ruta={file_path} | ocr_procesado={ocr_processed} | ocr='{ocr_text}'"
         )
     return "\n".join(lines)
-
 
 def _build_conclusion(fields, transcriptions) -> str:
     mismatches = 0
@@ -196,7 +223,6 @@ def _build_conclusion(fields, transcriptions) -> str:
         "Se recomienda complementar observaciones de campo o transcripción si se requiere mayor detalle."
     )
 
-
 def _build_snapshot(inspection, transcriptions) -> dict:
     fields = []
     for field in getattr(inspection, "fields", []) or []:
@@ -225,8 +251,17 @@ def _build_snapshot(inspection, transcriptions) -> dict:
                 "file_type": getattr(evidence, "file_type", None),
                 "evidence_category": getattr(evidence, "evidence_category", None),
                 "caption": getattr(evidence, "caption", None),
+                "raw_label": getattr(evidence, "raw_label", None),
+                "normalized_label": getattr(evidence, "normalized_label", None),
+                "evidence_slot": getattr(evidence, "evidence_slot", None),
+                "component_code": getattr(evidence, "component_code", None),
+                "axle_number": getattr(evidence, "axle_number", None),
+                "side": getattr(evidence, "side", None),
+                "is_reference": getattr(evidence, "is_reference", False),
                 "ocr_extracted_text": getattr(evidence, "ocr_extracted_text", None),
-                "ocr_confidence": float(evidence.ocr_confidence) if getattr(evidence, "ocr_confidence", None) is not None else None,
+                "ocr_confidence": float(evidence.ocr_confidence)
+                if getattr(evidence, "ocr_confidence", None) is not None
+                else None,
                 "ocr_processed": bool(getattr(evidence, "ocr_processed", False)),
             }
         )
@@ -236,11 +271,11 @@ def _build_snapshot(inspection, transcriptions) -> dict:
         transcription_items.append(
             {
                 "transcription_id": transcription.id,
-                "source_file_path": transcription.source_file_path,
-                "language": transcription.language,
-                "model_name": transcription.model_name,
-                "raw_text": transcription.raw_text,
-                "final_text": transcription.final_text,
+                "source_file_path": getattr(transcription, "source_file_path", None),
+                "language": getattr(transcription, "language", None),
+                "model_name": getattr(transcription, "model_name", None),
+                "raw_text": getattr(transcription, "raw_text", None),
+                "final_text": getattr(transcription, "final_text", None),
                 "confidence": float(transcription.confidence) if transcription.confidence is not None else None,
                 "processed": bool(getattr(transcription, "processed", False)),
                 "edited_manually": bool(getattr(transcription, "edited_manually", False)),
@@ -266,34 +301,13 @@ def _build_snapshot(inspection, transcriptions) -> dict:
         "transcriptions": transcription_items,
     }
 
-
-def _strip_code_fences(text: str) -> str:
-    cleaned = text.strip()
-    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\s*```$", "", cleaned)
-    return cleaned.strip()
-
-
-def _extract_json_object(text: str) -> str:
-    cleaned = _strip_code_fences(text)
-    start = cleaned.find("{")
-    end = cleaned.rfind("}")
-    if start == -1 or end == -1 or end <= start:
-        raise ValueError("La respuesta del modelo no contiene un objeto JSON válido.")
-    return cleaned[start:end + 1]
-
-
 def _get_llm() -> ChatOllama:
-    model_name = os.getenv("LLAMA_MODEL", "llama3:8b")
-    base_url = os.getenv("LLAMA_BASE_URL", "http://localhost:11434")
-    temperature = float(os.getenv("LLAMA_TEMPERATURE", "0.1"))
-
     return ChatOllama(
-        model=model_name,
-        base_url=base_url,
-        temperature=temperature,
+        model=settings.ollama_model,
+        base_url=settings.ollama_base_url,
+        temperature=settings.llm_temperature,
+        timeout=settings.llm_timeout,
     )
-
 
 def _generate_llama_sections(
     *,
@@ -308,6 +322,7 @@ def _generate_llama_sections(
     deterministic_conclusion: str,
 ) -> dict:
     llm = _get_llm()
+    structured_llm = llm.with_structured_output(DraftSections)
 
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -317,17 +332,14 @@ def _generate_llama_sections(
                     "Eres un ingeniero redactor de informes de inspección industrial. "
                     "Redacta en español técnico, claro y profesional. "
                     "No inventes datos. Si falta información, dilo de forma explícita. "
-                    "Debes responder SOLO con un JSON válido, sin markdown, sin comentarios y sin texto adicional. "
-                    "Las claves obligatorias son: "
-                    "summary, findings, recommendations, conclusion, final_report. "
-                    "Reglas: "
-                    "summary = 1 párrafo ejecutivo; "
-                    "findings = 2 a 5 párrafos o lista redactada con hallazgos principales; "
-                    "recommendations = lista textual con recomendaciones concretas; "
-                    "conclusion = 1 párrafo de cierre; "
-                    "final_report = versión continua y bien redactada del borrador técnico completo, en varios párrafos. "
-                    "No uses encabezados dentro de los valores. "
-                    "Mantén consistencia con inspección, OCR, evidencias y transcripciones."
+                    "Debes responder ajustándote exactamente al esquema estructurado solicitado. "
+                    "No agregues datos no presentes en la inspección, OCR, evidencias o transcripciones. "
+                    "Mantén consistencia técnica y terminología formal. "
+                    "Ningún campo debe quedar vacío. "
+                    "Si no hubiera suficiente sustento para recomendaciones, escribe exactamente: "
+                    "'No se identifican recomendaciones técnicas adicionales con la información disponible.'. "
+                    "Si faltara información para alguna otra sección, redacta una salida breve y explícita, "
+                    "pero nunca devuelvas cadenas vacías."
                 ),
             ),
             (
@@ -347,7 +359,8 @@ def _generate_llama_sections(
         ]
     )
 
-    response = (prompt | llm).invoke(
+    chain = prompt | structured_llm
+    result = chain.invoke(
         {
             "template_version": template_version,
             "general_section": general_section,
@@ -361,26 +374,15 @@ def _generate_llama_sections(
         }
     )
 
-    raw_content = getattr(response, "content", response)
-    json_text = _extract_json_object(str(raw_content))
-    data = json.loads(json_text)
-
-    required_keys = ["summary", "findings", "recommendations", "conclusion", "final_report"]
-    missing = [key for key in required_keys if key not in data]
-    if missing:
-        raise ValueError(f"Faltan claves obligatorias en la salida de LLaMA: {', '.join(missing)}")
-
-    normalized = {}
-    for key in required_keys:
-        value = data.get(key)
-        if value is None:
-            raise ValueError(f"La clave '{key}' llegó vacía desde LLaMA.")
-        normalized[key] = str(value).strip()
-        if not normalized[key]:
-            raise ValueError(f"La clave '{key}' llegó sin contenido desde LLaMA.")
+    normalized = {
+        "summary": _coalesce_llm_section("summary", getattr(result, "summary", None)),
+        "findings": _coalesce_llm_section("findings", getattr(result, "findings", None)),
+        "recommendations": _coalesce_llm_section("recommendations", getattr(result, "recommendations", None)),
+        "conclusion": _coalesce_llm_section("conclusion", getattr(result, "conclusion", None)),
+        "final_report": _coalesce_llm_section("final_report", getattr(result, "final_report", None)),
+    }
 
     return normalized
-
 
 def _render_template(inspection, transcriptions, template_version: str) -> tuple[str, dict]:
     fields = getattr(inspection, "fields", []) or []
@@ -410,9 +412,9 @@ def _render_template(inspection, transcriptions, template_version: str) -> tuple
 
     snapshot["llm"] = {
         "provider": "ollama",
-        "model": os.getenv("LLAMA_MODEL", "llama3:8b"),
-        "base_url": os.getenv("LLAMA_BASE_URL", "http://localhost:11434"),
-        "temperature": float(os.getenv("LLAMA_TEMPERATURE", "0.1")),
+        "model": settings.ollama_model,
+        "base_url": settings.ollama_base_url,
+        "temperature": settings.llm_temperature,
         "sections": ai_sections,
     }
 

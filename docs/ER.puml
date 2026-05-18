@@ -1,0 +1,115 @@
+@startuml
+title Diagrama entidad-relación del sistema
+
+hide methods
+hide stereotypes
+skinparam linetype ortho
+skinparam shadowing false
+
+entity "Inspection" as Inspection {
+  * id : int <<PK>>
+  --
+  code : string
+  clientName : string
+  equipmentType : string
+  inspectionType : string
+  inspectionDate : date
+  location : string
+  requestedBy : string
+  responsibleInspector : string
+  status : string
+  createdAt : datetime
+  updatedAt : datetime
+}
+
+entity "InspectionField" as InspectionField {
+  * id : int <<PK>>
+  --
+  inspectionId : int <<FK>>
+  fieldKey : string
+  fieldLabel : string
+  fieldGroup : string
+  expectedType : string
+  manualValue : text
+  ocrValue : text
+  finalValue : text
+  validationStatus : string
+  validationMessage : text
+  confidence : float
+  updatedAt : datetime
+}
+
+entity "Evidence" as Evidence {
+  * id : int <<PK>>
+  --
+  inspectionId : int <<FK>>
+  filePath : string
+  fileType : string
+  evidenceCategory : string
+  caption : string
+  ocrExtractedText : text
+  ocrConfidence : float
+  ocrProcessed : bool
+  ocrLastProcessedAt : datetime
+  uploadedAt : datetime
+}
+
+entity "Transcription" as Transcription {
+  * id : int <<PK>>
+  --
+  inspectionId : int <<FK>>
+  evidenceId : int <<FK, nullable>>
+  sourceFilePath : string
+  language : string
+  modelName : string
+  rawText : text
+  finalText : text
+  confidence : float
+  processed : bool
+  editedManually : bool
+  createdAt : datetime
+  updatedAt : datetime
+}
+
+entity "ReportDraft" as ReportDraft {
+  * id : int <<PK>>
+  --
+  inspectionId : int <<FK>>
+  title : string
+  templateVersion : string
+  status : string
+  generatedText : text
+  editedText : text
+  sourceSnapshot : json
+  generationTimeMs : int
+  lastAction : string
+  statusUpdatedAt : datetime
+  statusUpdatedBy : int
+  createdAt : datetime
+  updatedAt : datetime
+}
+
+entity "ReportStatusLog" as ReportStatusLog {
+  * id : int <<PK>>
+  --
+  reportDraftId : int <<FK>>
+  inspectionId : int <<FK, nullable>>
+  fromStatus : string
+  toStatus : string
+  action : string
+  actorUserId : int
+  actorName : string
+  notes : text
+  metadataJson : json
+  createdAt : datetime
+}
+
+Inspection ||--o{ InspectionField
+Inspection ||--o{ Evidence
+Inspection ||--o{ Transcription
+Inspection ||--o{ ReportDraft
+Evidence |o--o{ Transcription
+ReportDraft ||--o{ ReportStatusLog
+Inspection |o--o{ ReportStatusLog
+
+@enduml

@@ -24,7 +24,6 @@ def get_db():
     finally:
         db.close()
 
-
 @router.post("/generate/{inspection_id}", response_model=ReportDraftResponse, status_code=201)
 def generate_report_draft_endpoint(
     inspection_id: int,
@@ -34,8 +33,11 @@ def generate_report_draft_endpoint(
     try:
         return generate_report_draft(db, inspection_id, payload.template_version)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-
+        if str(exc) == "Inspection not found":
+            raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error al generar borrador: {exc}")
 
 @router.get("/inspection/{inspection_id}", response_model=list[ReportDraftResponse])
 def list_report_drafts_by_inspection_endpoint(inspection_id: int, db: Session = Depends(get_db)):

@@ -1,0 +1,100 @@
+@startuml
+title Diagrama de componentes del backend y servicios IA
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+package "API Routes" {
+  [health.py]
+  [inspections.py]
+  [inspectionfields.py]
+  [evidences.py]
+  [ocr.py]
+  [transcription.py]
+  [reportdraft.py]
+  [llmreport.py]
+  [reportstatus.py]
+  [reportexport.py]
+}
+
+package "Schemas" {
+  [inspection schema]
+  [inspectionfield schema]
+  [evidence schema]
+  [ocr schema]
+  [transcription schema]
+  [reportdraft schema]
+  [reportstatus schema]
+}
+
+package "Services" {
+  [inspectionservice]
+  [inspectionfieldservice]
+  [evidenceservice]
+  [evidenceocrservice]
+  [ocrservice]
+  [validationservice]
+  [transcriptionservice]
+  [reportdraftservice]
+  [llmreportservice]
+  [reportstatusservice]
+  [reportexportservice]
+  [reporttemplateservice]
+  [storageservice]
+}
+
+database "SQLAlchemy / PostgreSQL" as DB
+folder "File Storage\nuploads / outputs" as FS
+
+cloud "Tesseract + Pillow" as OCRStack
+cloud "Whisper" as Whisper
+cloud "LangChain + Ollama\nLLaMA 3" as LLM
+cloud "ReportLab / python-docx" as ExportLibs
+
+[inspections.py] --> [inspection schema]
+[inspectionfields.py] --> [inspectionfield schema]
+[evidences.py] --> [evidence schema]
+[ocr.py] --> [ocr schema]
+[transcription.py] --> [transcription schema]
+[reportdraft.py] --> [reportdraft schema]
+[llmreport.py] --> [reportdraft schema]
+[reportstatus.py] --> [reportstatus schema]
+
+[inspections.py] --> [inspectionservice]
+[inspectionfields.py] --> [inspectionfieldservice]
+[evidences.py] --> [evidenceservice]
+[evidences.py] --> [evidenceocrservice]
+[ocr.py] --> [ocrservice]
+[ocr.py] --> [validationservice]
+[transcription.py] --> [transcriptionservice]
+[reportdraft.py] --> [reportdraftservice]
+[llmreport.py] --> [llmreportservice]
+[reportstatus.py] --> [reportstatusservice]
+[reportexport.py] --> [reportexportservice]
+
+[inspectionservice] --> DB
+[inspectionfieldservice] --> DB
+[evidenceservice] --> DB
+[evidenceservice] --> [storageservice]
+[evidenceocrservice] --> DB
+[evidenceocrservice] --> OCRStack
+[ocrservice] --> DB
+[ocrservice] --> OCRStack
+[validationservice] --> DB
+[validationservice] --> [ocrservice]
+[transcriptionservice] --> DB
+[transcriptionservice] --> Whisper
+[transcriptionservice] --> FS
+[reportdraftservice] --> DB
+[reportdraftservice] --> LLM
+[llmreportservice] --> DB
+[llmreportservice] --> LLM
+[reportstatusservice] --> DB
+[reportexportservice] --> DB
+[reportexportservice] --> [reporttemplateservice]
+[reportexportservice] --> ExportLibs
+[reportexportservice] --> FS
+[storageservice] --> FS
+
+@enduml
