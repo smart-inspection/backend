@@ -22,6 +22,17 @@ class EvidenceBase(BaseModel):
 class EvidenceCreate(EvidenceBase):
     pass
 
+class EvidenceUpdate(BaseModel):
+    evidence_category: str | None = Field(default=None, max_length=100)
+    caption: str | None = None
+    raw_label: str | None = Field(default=None, max_length=120)
+    component_code: str | None = Field(default=None, max_length=80)
+    axle_number: int | None = None
+    side: str | None = Field(default=None, max_length=20)
+    is_reference: bool | None = None
+    ocr_extracted_text: str | None = None
+    ocr_confidence: float | None = None
+
 class EvidenceResponse(BaseModel):
     id: int
     inspection_id: int

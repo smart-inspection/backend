@@ -23,3 +23,15 @@ class InspectionFieldResponse(InspectionFieldBase):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+class InspectionFieldUpdate(BaseModel):
+    field_key: str | None = Field(default=None, max_length=100)
+    field_label: str | None = Field(default=None, max_length=150)
+    field_group: str | None = Field(default=None, max_length=100)
+    expected_type: str | None = Field(default=None, max_length=50)
+    manual_value: str | None = None
+    ocr_value: str | None = None
+    final_value: str | None = None
+    validation_status: str | None = None
+    validation_message: str | None = None
+    confidence: float | None = None

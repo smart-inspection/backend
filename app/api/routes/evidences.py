@@ -2,13 +2,14 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
-from app.schemas.evidence import EvidenceOCRResponse, EvidenceResponse
+from app.schemas.evidence import EvidenceOCRResponse, EvidenceResponse, EvidenceUpdate
 from app.services.evidence_ocr_service import process_evidence_ocr
 from app.services.evidence_service import (
     create_evidence,
     get_inspection,
     list_evidences,
     serialize_evidence,
+    update_evidence,
 )
 
 router = APIRouter(tags=["evidences"])
@@ -88,3 +89,14 @@ def run_ocr_for_evidence_endpoint(
         "ocr_processed": evidence.ocr_processed,
         "ocr_last_processed_at": evidence.ocr_last_processed_at,
     }
+
+@router.patch("/evidences/{evidence_id}", response_model=EvidenceResponse)
+def update_evidence_endpoint(
+        evidence_id: int,
+        payload: EvidenceUpdate,
+        db: Session = Depends(get_db),
+):
+    evidence = update_evidence(db, evidence_id, payload)
+    if not evidence:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+    return serialize_evidence(evidence)
