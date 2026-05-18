@@ -83,6 +83,19 @@ def build_slot(
 
     text = normalized_label or ""
 
+    if ("semirremolque" in text or "semiremolque" in text) and normalized_side in ("left", "right"):
+        return EvidenceLabelResult(
+            raw_label=None,
+            normalized_label=normalized_label,
+            evidence_slot=f"semitrailer_{normalized_side}",
+            component_code="semitrailer",
+            axle_number=None,
+            side=normalized_side,
+            is_reference=is_reference,
+            label_confidence=0.94,
+            metadata_json={"reason": "matched_semitrailer_side"},
+        )
+
     if "portada" in text or "semirremolque completo" in text or "vista general" in text:
         return EvidenceLabelResult(
             raw_label=None,

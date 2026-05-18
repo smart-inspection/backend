@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from pip._internal.models import candidate
 from sqlalchemy.orm import Session
 
 from app.services.report_template_service import build_company_report_context
@@ -72,9 +73,17 @@ def _ensure_parent(path: Path) -> Path:
 def _existing_image(path_value: str | None) -> str | None:
     if not path_value:
         return None
-    path = Path(path_value)
-    if path.exists() and path.is_file():
-        return str(path)
+    normalized = str(path_value).strip().replace("\\", "/")
+    raw = Path(normalized)
+    suffix = normalized.lstrip("/").replace("uploads/", "", 1)
+    candidates = [
+        raw,
+        Path.cwd() / normalized.lstrip("/"),
+        Path.cwd() / "uploads" / suffix,
+    ]
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return str(candidate.resolve())
     return None
 
 def _chunked(items: list[Any], size: int) -> list[list[Any]]:
@@ -341,6 +350,21 @@ def _add_cover_docx(document: Document, context: dict[str, Any]):
         space_before=10,
     )
 
+    cover_evidence = next(
+        (
+            item
+            for item in context.get("evidences", [])
+            if _dict_value(item, "evidence_slot", "evidenceslot") == "cover_semitrailer"
+        ),
+        None,
+    )
+    cover_path = _existing_image(_dict_value(cover_evidence or {}, "file_path", "path"))
+    if cover_path:
+        p_cover = document.add_paragraph()
+        p_cover.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run_cover = p_cover.add_run()
+        run_cover.add_picture(cover_path, width=Inches(5.2))
+
     document.add_page_break()
 
 def _add_technical_intro_docx(document: Document, context: dict[str, Any]):
@@ -572,6 +596,239 @@ def _add_results_table_docx(document: Document, context: dict[str, Any]):
 
     _apply_table_borders(table)
 
+def _add_inspection_support_tables_docx(document: Document, context: dict[str, Any]):
+    identification = context.get("identification", {}) or {}
+    numero_ejes_raw = _dict_value(identification, "numero_ejes", default="0")
+    match = re.search(r"\d+", str(numero_ejes_raw))
+    numero_ejes = int(match.group()) if match else 0
+
+    cover_evidence = _find_context_evidence_by_slot(context, "cover_semitrailer")
+    plate_technical_evidence = _find_context_evidence_by_slot(context, "plate_technical")
+    semitrailer_left_evidence = _find_context_evidence_by_slot(context, "semitrailer_left")
+    semitrailer_right_evidence = _find_context_evidence_by_slot(context, "semitrailer_right")
+
+    semitrailer_general_evidence = cover_evidence or semitrailer_left_evidence or semitrailer_right_evidence
+
+    def set_cell(cell, text: str, *, bold: bool = False, size: int = 9, align=WD_ALIGN_PARAGRAPH.CENTER, fill: str | None = None, color: str | None = None):
+        cell.text = ""
+        if fill:
+            _shade_cell(cell, fill)
+        p = cell.paragraphs[0]
+        p.alignment = align
+        run = p.add_run(_safe_text(text, "--"))
+        run.bold = bold
+        run.font.name = "Arial"
+        run.font.size = Pt(size)
+        if color:
+            run.font.color.rgb = RGBColor.from_string(color)
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+
+    def add_title(text: str):
+        _add_paragraph(
+            document,
+            text,
+            bold=True,
+            italic=True,
+            underline=True,
+            size=10,
+            align=WD_ALIGN_PARAGRAPH.CENTER,
+            space_before=8,
+            space_after=4,
+        )
+
+    add_title("INSPECCIÓN VISUAL (VT) / DIMENSIONAL / PARTICULAS MAGNETICAS (MT)")
+    add_title("DE KING PIN Y PLANCHA DE KING PIN")
+
+    table = document.add_table(rows=6, cols=6)
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    table.style = "Table Grid"
+
+    table.cell(0, 0).merge(table.cell(0, 2))
+    table.cell(0, 3).merge(table.cell(0, 5))
+    table.cell(1, 0).merge(table.cell(1, 2))
+    table.cell(1, 3).merge(table.cell(1, 5))
+    table.cell(2, 1).merge(table.cell(2, 2))
+
+    set_cell(table.cell(0, 0), "COMPONENTES:", bold=True, fill="D9D9D9", align=WD_ALIGN_PARAGRAPH.LEFT)
+    set_cell(table.cell(0, 3), "KINGPIN Y PLANCHA", bold=True, fill="D9D9D9")
+    set_cell(table.cell(1, 0), "MARCA:", bold=True, fill="D9D9D9", align=WD_ALIGN_PARAGRAPH.LEFT)
+    set_cell(table.cell(1, 3), "JOST", fill="D9D9D9", align=WD_ALIGN_PARAGRAPH.LEFT)
+
+    set_cell(table.cell(2, 0), "Zona Inspeccionada", bold=True)
+    set_cell(table.cell(2, 1), "Área Examinada", bold=True)
+    set_cell(table.cell(2, 3), "Localización de discontinuidad", bold=True)
+    set_cell(table.cell(2, 4), "Longitud Discontinuidad", bold=True)
+    set_cell(table.cell(2, 5), "Condición", bold=True)
+
+    set_cell(table.cell(3, 1), "Entera", bold=True)
+    set_cell(table.cell(3, 2), "Específica", bold=True)
+
+    rows_kp = [
+        ("King pin", "-", "Zona accesible", "--", "--", "Aceptable"),
+        ("Plancha king Pin", "-", "Área de contacto", "-", "-", "Aceptable"),
+    ]
+
+    for row_index, row_data in enumerate(rows_kp, start=4):
+        set_cell(table.cell(row_index, 0), row_data[0], align=WD_ALIGN_PARAGRAPH.LEFT)
+        set_cell(table.cell(row_index, 1), row_data[1])
+        set_cell(table.cell(row_index, 2), row_data[2], align=WD_ALIGN_PARAGRAPH.LEFT)
+        set_cell(table.cell(row_index, 3), row_data[3])
+        set_cell(table.cell(row_index, 4), row_data[4])
+        set_cell(table.cell(row_index, 5), row_data[5], bold=True, color="1B9E5A")
+
+    _apply_table_borders(table)
+    document.add_paragraph()
+
+    add_title("INSPECCIÓN VISUAL (VT) / PARTICULAS MAGNETICAS (MT) DE CHASIS, TEMPLADORES,")
+    add_title("SOPORTES DE MUELLES Y MUELLES/BOLSAS DE AIRE")
+
+    table = document.add_table(rows=9, cols=6)
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    table.style = "Table Grid"
+
+    table.cell(0, 0).merge(table.cell(0, 2))
+    table.cell(0, 3).merge(table.cell(0, 5))
+    table.cell(1, 0).merge(table.cell(1, 2))
+    table.cell(1, 3).merge(table.cell(1, 5))
+    table.cell(2, 1).merge(table.cell(2, 2))
+
+    set_cell(table.cell(0, 0), "COMPONENTES:", bold=True, fill="D9D9D9", align=WD_ALIGN_PARAGRAPH.LEFT)
+    set_cell(table.cell(0, 3), "CHASIS DE LA PLATAFORMA", bold=True, fill="D9D9D9", align=WD_ALIGN_PARAGRAPH.LEFT)
+    set_cell(table.cell(1, 0), "MARCA:", bold=True, fill="D9D9D9", align=WD_ALIGN_PARAGRAPH.LEFT)
+    set_cell(table.cell(1, 3), "RMB SATECI", fill="D9D9D9", align=WD_ALIGN_PARAGRAPH.LEFT)
+
+    set_cell(table.cell(2, 0), "Zona Inspeccionada", bold=True)
+    set_cell(table.cell(2, 1), "Área Examinada", bold=True)
+    set_cell(table.cell(2, 3), "Localización de discontinuidad", bold=True)
+    set_cell(table.cell(2, 4), "Longitud Discontinuidad", bold=True)
+    set_cell(table.cell(2, 5), "Condición", bold=True)
+
+    set_cell(table.cell(3, 1), "Entera", bold=True)
+    set_cell(table.cell(3, 2), "Específica", bold=True)
+
+    rows_chassis = [
+        ("Chasis de Plataforma", "X", "-", "-", "-", "Aceptable"),
+        ("Balancines de muelles", "X", "-", "-", "-", "Aceptable"),
+        ("Soportes de muelles", "X", "-", "-", "-", "Aceptable"),
+    ]
+
+    for row_index, row_data in enumerate(rows_chassis, start=4):
+        set_cell(table.cell(row_index, 0), row_data[0], align=WD_ALIGN_PARAGRAPH.LEFT)
+        set_cell(table.cell(row_index, 1), row_data[1])
+        set_cell(table.cell(row_index, 2), row_data[2])
+        set_cell(table.cell(row_index, 3), row_data[3])
+        set_cell(table.cell(row_index, 4), row_data[4])
+        set_cell(table.cell(row_index, 5), row_data[5], bold=True, color="1B9E5A")
+
+    table.cell(7, 0).merge(table.cell(7, 2))
+    table.cell(7, 3).merge(table.cell(7, 5))
+    table.cell(8, 0).merge(table.cell(8, 2))
+    table.cell(8, 3).merge(table.cell(8, 5))
+
+    _render_docx_support_image(
+        table.cell(7, 0),
+        plate_technical_evidence,
+        "PLACA TÉCNICA PENDIENTE",
+    )
+    _render_docx_support_image(
+        table.cell(7, 3),
+        semitrailer_general_evidence,
+        "SEMIRREMOLQUE PENDIENTE",
+    )
+
+    set_cell(
+        table.cell(8, 0),
+        "Foto 1. Muestra placa técnica / placa de fabricación.",
+        bold=True,
+        size=9,
+    )
+    set_cell(
+        table.cell(8, 3),
+        "Foto 2. Muestra vista general del semirremolque inspeccionado.",
+        bold=True,
+        size=9,
+    )
+
+    _apply_table_borders(table)
+    document.add_paragraph()
+
+    if numero_ejes > 0:
+        add_title("INSPECCIÓN VISUAL (VT) / PARTICULAS MAGNETICAS (MT)")
+        add_title("DE PUNTAS DE EJES")
+
+        total_rows = 5 + (numero_ejes * 2)
+        table = document.add_table(rows=total_rows, cols=6)
+        table.alignment = WD_TABLE_ALIGNMENT.CENTER
+        table.style = "Table Grid"
+
+        table.cell(0, 0).merge(table.cell(0, 1))
+        table.cell(0, 2).merge(table.cell(0, 5))
+        table.cell(1, 1).merge(table.cell(1, 2))
+
+        set_cell(table.cell(0, 0), "COMPONENTES:", bold=True, fill="D9D9D9", align=WD_ALIGN_PARAGRAPH.LEFT)
+        set_cell(table.cell(0, 2), "EJES DE LA PLATAFORMA", bold=True, fill="D9D9D9")
+        set_cell(table.cell(1, 0), "Zona Inspeccionada", bold=True)
+        set_cell(table.cell(1, 1), "Área Examinada", bold=True)
+        set_cell(table.cell(1, 3), "Localización de discontinuidad", bold=True)
+        set_cell(table.cell(1, 4), "Longitud Discontinuidad (mm)", bold=True)
+        set_cell(table.cell(1, 5), "Condición", bold=True)
+
+        set_cell(table.cell(2, 1), "Entera", bold=True)
+        set_cell(table.cell(2, 2), "Específica", bold=True)
+
+        current_row = 3
+        punto = 1
+
+        for eje in range(1, numero_ejes + 1):
+            set_cell(table.cell(current_row, 0), f"Eje № {eje} (P{punto}-P{punto + 1})", align=WD_ALIGN_PARAGRAPH.LEFT)
+            set_cell(table.cell(current_row, 1), "X")
+            set_cell(table.cell(current_row, 2), f"P{punto}.izquierdo", align=WD_ALIGN_PARAGRAPH.LEFT)
+            set_cell(table.cell(current_row, 3), "-")
+            set_cell(table.cell(current_row, 4), "-")
+            set_cell(table.cell(current_row, 5), "Aceptable", bold=True, color="1B9E5A")
+            current_row += 1
+
+            set_cell(table.cell(current_row, 0), "")
+            set_cell(table.cell(current_row, 1), "X")
+            set_cell(table.cell(current_row, 2), f"P{punto + 1}.derecho", align=WD_ALIGN_PARAGRAPH.LEFT)
+            set_cell(table.cell(current_row, 3), "-")
+            set_cell(table.cell(current_row, 4), "-")
+            set_cell(table.cell(current_row, 5), "Aceptable", bold=True, color="1B9E5A")
+            current_row += 1
+            punto += 2
+
+        table.cell(current_row, 0).merge(table.cell(current_row, 2))
+        table.cell(current_row, 3).merge(table.cell(current_row, 5))
+        table.cell(current_row + 1, 0).merge(table.cell(current_row + 1, 2))
+        table.cell(current_row + 1, 3).merge(table.cell(current_row + 1, 5))
+
+        _render_docx_support_image(
+            table.cell(current_row, 0),
+            semitrailer_left_evidence,
+            "LADO IZQUIERDO PENDIENTE",
+        )
+        _render_docx_support_image(
+            table.cell(current_row, 3),
+            semitrailer_right_evidence,
+            "LADO DERECHO PENDIENTE",
+        )
+
+        set_cell(
+            table.cell(current_row + 1, 0),
+            "Foto 3. Muestra ejes inspeccionados, lado izquierdo.",
+            bold=True,
+            size=9,
+        )
+        set_cell(
+            table.cell(current_row + 1, 3),
+            "Foto 4. Muestra ejes inspeccionados lado derecho.",
+            bold=True,
+            size=9,
+        )
+
+        _apply_table_borders(table)
+        document.add_paragraph()
+
 # =========================
 # DOCX evidence rendering
 # =========================
@@ -600,6 +857,41 @@ def _render_docx_slot_image(cell, image_path: str | None, slot_label: str, prese
     run2 = p2.add_run(_safe_text(slot_label, "Evidencia esperada"))
     run2.font.name = "Arial"
     run2.font.size = Pt(8.5)
+
+def _find_context_evidence_by_slot(context: dict[str, Any], slot_key: str) -> dict[str, Any] | None:
+    for evidence in context.get("evidences") or []:
+        if _dict_value(evidence, "evidence_slot", "evidenceslot") == slot_key:
+            return evidence
+    return None
+
+
+def _render_docx_support_image(
+    cell,
+    evidence: dict[str, Any] | None,
+    empty_label: str,
+    *,
+    width: float = 2.85,
+):
+    cell.text = ""
+    p = cell.paragraphs[0]
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    image_path = None
+    if evidence:
+        image_path = _existing_image(_dict_value(evidence, "path", "filepath"))
+
+    if image_path:
+        run = p.add_run()
+        try:
+            run.add_picture(image_path, width=Inches(width))
+            return
+        except Exception:
+            pass
+
+    run = p.add_run(empty_label)
+    run.bold = True
+    run.font.name = "Arial"
+    run.font.size = Pt(9)
 
 def _add_fixed_evidence_sections_docx_document(document: Document, context: dict[str, Any]) -> bool:
     fixed_sections = list(context.get("fixed_evidence_sections") or [])
@@ -771,6 +1063,7 @@ def _build_docx_document(context: dict[str, Any]) -> Document:
     _add_equipment_table_docx(document, context)
     _add_criteria_docx(document, context)
     _add_results_table_docx(document, context)
+    _add_inspection_support_tables_docx(document, context)
 
     _add_heading_docx(document, "10. CONCLUSIONES")
     _add_paragraph(document, context["conclusion"], size=10.5, align=WD_ALIGN_PARAGRAPH.JUSTIFY)
@@ -1024,6 +1317,235 @@ def _build_fixed_evidence_sections_pdf(context: dict[str, Any], styles) -> list[
 
     return story
 
+def _build_inspection_support_tables_pdf(context: dict[str, Any], styles) -> list[Any]:
+    identification = context.get("identification", {}) or {}
+    numero_ejes_raw = _dict_value(identification, "numero_ejes", default="0")
+    match = re.search(r"\d+", str(numero_ejes_raw))
+    numero_ejes = int(match.group()) if match else 0
+
+    evidences = list(context.get("evidences") or [])
+
+    def find_slot_item(*slots: str) -> dict[str, Any] | None:
+        normalized = {slot.lower() for slot in slots}
+        for item in evidences:
+            evidence_slot = _safe_text(_dict_value(item, "evidence_slot", "evidenceslot", default="")).lower()
+            if evidence_slot in normalized:
+                return item
+        return None
+
+    def image_or_placeholder(path_value: str | None, width: float, height: float):
+        image_path = _existing_image(path_value)
+        if image_path:
+            return RLImage(image_path, width=width, height=height)
+        return _rl_paragraph("Imagen no disponible", styles["PdfSmallCenter"])
+
+    plate_item = find_slot_item("plate_technical")
+    semitrailer_item = find_slot_item("cover_semitrailer", "semitrailer_left")
+
+    plate_path = _dict_value(plate_item or {}, "path", "filepath", "file_path")
+    semitrailer_path = _dict_value(semitrailer_item or {}, "path", "filepath", "file_path")
+
+    plate_image = image_or_placeholder(plate_path, 5.2 * cm, 3.8 * cm)
+    semitrailer_image = image_or_placeholder(semitrailer_path, 6.0 * cm, 3.8 * cm)
+
+    plate_caption = _rl_paragraph(
+        "<b>Foto 1.</b> Muestra placa de identificación del semirremolque.",
+        styles["PdfSmallCenter"],
+        allow_markup=True,
+    )
+    semitrailer_caption = _rl_paragraph(
+        "<b>Foto 2.</b> Muestra vista general del semirremolque inspeccionado.",
+        styles["PdfSmallCenter"],
+        allow_markup=True,
+    )
+
+    story: list[Any] = []
+
+    def title(text: str):
+        story.append(
+            _rl_paragraph(
+                f"<u><i><b>{_escape_pdf_text(text)}</b></i></u>",
+                styles["PdfCodeCenter"],
+                allow_markup=True,
+            )
+        )
+
+    def ok_cell():
+        return _rl_paragraph(
+            "<font color='#1B9E5A'><b>Aceptable</b></font>",
+            styles["PdfSmallCenter"],
+            allow_markup=True,
+        )
+
+    widths = [3.4 * cm, 2.0 * cm, 3.0 * cm, 4.0 * cm, 2.7 * cm, 2.7 * cm]
+
+    title("INSPECCIÓN VISUAL (VT) / DIMENSIONAL / PARTICULAS MAGNETICAS (MT)")
+    title("DE KING PIN Y PLANCHA DE KING PIN")
+
+    kp_data = [
+        ["COMPONENTES:", "", "", "KINGPIN Y PLANCHA", "", ""],
+        ["MARCA:", "", "", "JOST", "", ""],
+        ["Zona Inspeccionada", "Área Examinada", "", "Localización de discontinuidad", "Longitud Discontinuidad", "Condición"],
+        ["", "Entera", "Específica", "", "", ""],
+        ["King pin", "-", "Zona accesible", "--", "--", ok_cell()],
+        ["Plancha king Pin", "-", "Área de contacto", "-", "-", ok_cell()],
+    ]
+
+    kp_table = Table(kp_data, colWidths=widths)
+    kp_table.setStyle(
+        TableStyle(
+            [
+                ("SPAN", (0, 0), (2, 0)),
+                ("SPAN", (3, 0), (5, 0)),
+                ("SPAN", (0, 1), (2, 1)),
+                ("SPAN", (3, 1), (5, 1)),
+                ("SPAN", (1, 2), (2, 2)),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("BACKGROUND", (0, 0), (-1, 1), colors.HexColor("#D9D9D9")),
+                ("FONTNAME", (0, 0), (-1, 3), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8.3),
+                ("LEADING", (0, 0), (-1, -1), 10),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("ALIGN", (0, 0), (0, -1), "LEFT"),
+                ("ALIGN", (2, 4), (2, 5), "LEFT"),
+                ("ALIGN", (3, 1), (3, 1), "LEFT"),
+            ]
+        )
+    )
+    story.append(kp_table)
+    story.append(Spacer(1, 0.18 * cm))
+
+    title("INSPECCIÓN VISUAL (VT) / PARTICULAS MAGNETICAS (MT) DE CHASIS, TEMPLADORES,")
+    title("SOPORTES DE MUELLES Y MUELLES/BOLSAS DE AIRE")
+
+    ch_data = [
+        ["COMPONENTES:", "", "", "CHASIS DE LA PLATAFORMA", "", ""],
+        ["MARCA:", "", "", "RMB SATECI", "", ""],
+        ["Zona Inspeccionada", "Área Examinada", "", "Localización de discontinuidad", "Longitud Discontinuidad",
+         "Condición"],
+        ["", "Entera", "Específica", "", "", ""],
+        ["Chasis de Plataforma", "X", "-", "-", "-", ok_cell()],
+        ["Balancines de muelles", "X", "-", "-", "-", ok_cell()],
+        ["Soportes de muelles", "X", "-", "-", "-", ok_cell()],
+        [plate_image, "", "", semitrailer_image, "", ""],
+        [plate_caption, "", "", semitrailer_caption, "", ""],
+    ]
+
+    ch_table = Table(ch_data, colWidths=widths)
+    ch_table.setStyle(
+        TableStyle(
+            [
+                ("SPAN", (0, 0), (2, 0)),
+                ("SPAN", (3, 0), (5, 0)),
+                ("SPAN", (0, 1), (2, 1)),
+                ("SPAN", (3, 1), (5, 1)),
+                ("SPAN", (1, 2), (2, 2)),
+                ("SPAN", (0, 7), (2, 7)),
+                ("SPAN", (3, 7), (5, 7)),
+                ("SPAN", (0, 8), (2, 8)),
+                ("SPAN", (3, 8), (5, 8)),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("BACKGROUND", (0, 0), (-1, 1), colors.HexColor("#D9D9D9")),
+                ("FONTNAME", (0, 0), (-1, 3), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8.3),
+                ("LEADING", (0, 0), (-1, -1), 10),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("ALIGN", (0, 0), (0, -1), "LEFT"),
+                ("ALIGN", (3, 1), (3, 1), "LEFT"),
+                ("ALIGN", (0, 7), (5, 8), "CENTER"),
+                ("VALIGN", (0, 7), (5, 8), "MIDDLE"),
+            ]
+        )
+    )
+    story.append(ch_table)
+    story.append(Spacer(1, 0.18 * cm))
+
+    semitrailer_left_item = find_slot_item("semitrailer_left")
+    semitrailer_right_item = find_slot_item("semitrailer_right")
+
+    semitrailer_left_path = _dict_value(semitrailer_left_item or {}, "path", "filepath", "file_path")
+    semitrailer_right_path = _dict_value(semitrailer_right_item or {}, "path", "filepath", "file_path")
+
+    semitrailer_left_image = image_or_placeholder(semitrailer_left_path, 6.0 * cm, 3.8 * cm)
+    semitrailer_right_image = image_or_placeholder(semitrailer_right_path, 6.0 * cm, 3.8 * cm)
+
+    semitrailer_left_caption = _rl_paragraph(
+        "<b>Foto 3.</b> Muestra ejes inspeccionados, lado izquierdo.",
+        styles["PdfSmallCenter"],
+        allow_markup=True,
+    )
+    semitrailer_right_caption = _rl_paragraph(
+        "<b>Foto 4.</b> Muestra ejes inspeccionados lado derecho.",
+        styles["PdfSmallCenter"],
+        allow_markup=True,
+    )
+
+    if numero_ejes > 0:
+        title("INSPECCIÓN VISUAL (VT) / PARTICULAS MAGNETICAS (MT)")
+        title("DE PUNTAS DE EJES")
+
+        ax_data = [
+            ["COMPONENTES:", "", "EJES DE LA PLATAFORMA", "", "", ""],
+            ["Zona Inspeccionada", "Área Examinada", "", "Localización de discontinuidad", "Longitud Discontinuidad (mm)", "Condición"],
+            ["", "Entera", "Específica", "", "", ""],
+        ]
+
+        punto = 1
+        for eje in range(1, numero_ejes + 1):
+            ax_data.append([f"Eje № {eje} (P{punto}-P{punto + 1})", "X", f"P{punto}.izquierdo", "-", "-", ok_cell()])
+            ax_data.append(["", "X", f"P{punto + 1}.derecho", "-", "-", ok_cell()])
+            punto += 2
+
+        image_row_index = len(ax_data)
+        caption_row_index = len(ax_data) + 1
+
+        ax_data.append([semitrailer_left_image, "", "", semitrailer_right_image, "", ""])
+        ax_data.append([semitrailer_left_caption, "", "", semitrailer_right_caption, "", ""])
+        
+        ax_table = Table(ax_data, colWidths=widths)
+        ax_table.setStyle(
+            TableStyle(
+                [
+                    ("SPAN", (0, 0), (1, 0)),
+                    ("SPAN", (2, 0), (5, 0)),
+                    ("SPAN", (1, 1), (2, 1)),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#D9D9D9")),
+                    ("FONTNAME", (0, 0), (-1, 2), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8.3),
+                    ("LEADING", (0, 0), (-1, -1), 10),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                    ("ALIGN", (0, 0), (0, -1), "LEFT"),
+                    ("ALIGN", (2, 3), (2, -1), "LEFT"),
+                    ("SPAN", (0, image_row_index), (2, image_row_index)),
+                    ("SPAN", (3, image_row_index), (5, image_row_index)),
+                    ("SPAN", (0, caption_row_index), (2, caption_row_index)),
+                    ("SPAN", (3, caption_row_index), (5, caption_row_index)),
+                    ("ALIGN", (0, image_row_index), (5, caption_row_index), "CENTER"),
+                    ("VALIGN", (0, image_row_index), (5, caption_row_index), "MIDDLE"),
+                ]
+            )
+        )
+        story.append(ax_table)
+        story.append(Spacer(1, 0.18 * cm))
+
+    return story
+
 def _build_pdf_evidences_fallback(context: dict[str, Any], styles) -> list[Any]:
     evidences = context.get("evidences") or []
     if not evidences:
@@ -1101,6 +1623,20 @@ def _build_pdf_story(context: dict[str, Any]):
             allow_markup=True,
         )
     )
+
+    cover_item = next(
+        (
+            item for item in context.get("evidences", [])
+            if _dict_value(item, "evidence_slot", "evidenceslot") == "cover_semitrailer"
+        ),
+        None,
+    )
+    cover_path = _existing_image(_dict_value(cover_item or {}, "path", "filepath", "file_path"))
+
+    if cover_path:
+        story.append(Spacer(1, 0.20 * cm))
+        story.append(RLImage(cover_path, width=11.5 * cm, height=7.0 * cm))
+        story.append(Spacer(1, 0.20 * cm))
 
     story.append(
         _rl_paragraph(
@@ -1269,6 +1805,7 @@ def _build_pdf_story(context: dict[str, Any]):
             row["accion"],
         ])
     story.append(_rl_table(results_data, [3.0 * cm, 3.8 * cm, 2.2 * cm, 4.0 * cm, 3.0 * cm], fontsize=7.8))
+    story.extend(_build_inspection_support_tables_pdf(context, styles))
 
     story.append(_rl_paragraph("10. CONCLUSIONES", styles["PdfSection"]))
     story.append(_rl_paragraph(_safe_text(context["conclusion"]), styles["PdfBody"]))

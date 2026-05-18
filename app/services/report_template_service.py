@@ -1493,7 +1493,8 @@ def build_company_report_context(db: Session, draft_id: int) -> dict[str, Any]:
     results = build_results_rows(inspection, fields, general_condition)
 
     equipment_type = safe_text(_get_attr(inspection, "equipmenttype", "equipment_type"))
-    equipment_display = f"{equipment_type.upper()}: {model_display}"
+    plate_display = safe_text(field_map.get("placa"), "Placa No Registrada")
+    equipment_display = f"{equipment_type.upper()}: {plate_display}"
     report_code_display = build_report_code_display(inspection, field_map)
 
     summary = extracted_summary or objective
