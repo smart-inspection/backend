@@ -1,47 +1,109 @@
 @startuml
-title Diagrama de arquitectura lógica del sistema
+title Smart Inspection - Arquitectura actual desplegada
 
-skinparam componentStyle rectangle
 skinparam shadowing false
-skinparam packageStyle rectangle
-skinparam defaultTextAlignment center
+skinparam componentStyle rectangle
+skinparam defaultFontName Arial
+skinparam nodesep 35
+skinparam ranksep 30
 
-actor Inspector
-actor Administrador
+actor "Inspector / Usuario" as user
 
-rectangle "Frontend Web\nReact + TypeScript\nUI mobile-first" as Frontend
-
-package "Backend API\nFastAPI" {
-  [Rutas REST] as Routes
-  [Servicios de negocio] as Services
-  [Esquemas Pydantic] as Schemas
-  [Validación OCR] as ValidationService
-  [Generación de borrador] as DraftService
-  [Exportación PDF/DOCX] as ExportService
+node "Cliente" {
+  node "Navegador Web" as browser
+  artifact "Frontend SPA\nReact + TypeScript + Vite\nReact Router + TanStack Query" as frontend
 }
 
-database "PostgreSQL" as DB
-folder "Almacenamiento de archivos\nimágenes / audios / reportes" as Storage
+node "Servidor de Aplicación" {
+  node "FastAPI API\nUvicorn\n127.0.0.1:8000" as api {
+    component "Routers API v1" as routers
+    component "Inspections" as inspections
+    component "Inspection Fields" as fields
+    component "Evidences" as evidences
+    component "OCR" as ocr
+    component "Transcription" as transcription
+    component "Report Drafts" as drafts
+    component "LLM Report" as llmreport
+    component "Report Export\nDOCX / PDF" as export
+    component "Report Status" as reportstatus
+    component "Inspection Enrichment" as enrichment
+    component "StaticFiles\n/api/v1/uploads" as staticfiles
+  }
 
-cloud "Tesseract OCR" as OCR
-cloud "Whisper" as Whisper
-cloud "LangChain + Ollama + LLaMA 3" as LLM
+  folder "Uploads locales\nEvidencias / imágenes / archivos" as uploads
 
-Inspector --> Frontend : registrar inspección\ncapturar campos\nsubir evidencias\ngenerar borrador
-Administrador --> Frontend : revisar estado\nconsultar historial\nexportar informe
+  database "Base de Datos\nSQLAlchemy Engine\nDATABASE_URL (.env)" as db
 
-Frontend --> Routes : HTTP/JSON
-Routes --> Schemas : validación de entrada/salida
-Routes --> Services : invocación de casos de uso
+  node "Servicios OCR" as ocrstack {
+    component "PaddleOCR" as paddle
+    component "Tesseract OCR" as tesseract
+    component "Validación OCR\nplaca / VIN / serie / numéricos" as validation
+  }
 
-Services --> DB : CRUD de inspecciones\ny artefactos
-Services --> Storage : guardar/leer archivos
-Services --> OCR : extraer texto de imágenes
-Services --> Whisper : transcribir audio
-Services --> ValidationService : comparar OCR vs formulario
-Services --> DraftService : construir borrador
-DraftService --> LLM : generar texto técnico
-Services --> ExportService : producir PDF/DOCX
-ExportService --> Storage : guardar reporte exportado
+  node "Servicios IA" as aistack {
+    component "Ollama\nlocalhost:11434" as ollama
+    component "Modelo llama3" as llama3
+  }
+
+  node "Procesamiento de reportes" as reportstack {
+    component "python-docx" as docx
+    component "ReportLab PDF" as pdf
+  }
+}
+
+user --> browser
+browser --> frontend : UI de inspecciones
+frontend --> api : HTTP / REST\nVITE_API_BASE_URL
+
+routers --> inspections
+routers --> fields
+routers --> evidences
+routers --> ocr
+routers --> transcription
+routers --> drafts
+routers --> llmreport
+routers --> export
+routers --> reportstatus
+routers --> enrichment
+routers --> staticfiles
+
+inspections --> db
+fields --> db
+evidences --> db
+transcription --> db
+drafts --> db
+reportstatus --> db
+enrichment --> db
+
+evidences --> uploads : guarda archivos
+staticfiles --> uploads : expone archivos
+ocr --> uploads : lee imágenes
+transcription --> uploads : lee audio/archivo fuente
+export --> uploads : usa imágenes/evidencias
+export --> db : arma contexto del reporte
+
+ocr --> paddle
+ocr --> tesseract
+ocr --> validation
+validation --> db
+
+llmreport --> ollama
+ollama --> llama3
+llmreport --> db
+
+export --> docx
+export --> pdf
+
+note right of frontend
+Rutas SPA visibles:
+Dashboard, Inspecciones,
+Evidencias e Informes
+end note
+
+note right of api
+Routers montados bajo /api/v1
+CORS habilitado para localhost:5173
+Uploads servidos en /api/v1/uploads
+end note
 
 @enduml

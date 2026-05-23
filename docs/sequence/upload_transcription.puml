@@ -1,0 +1,46 @@
+@startuml
+title 3. Subir transcripción
+
+actor Inspector
+participant Frontend
+participant "Transcription API\nPOST /api/v1/transcription" as TranscriptionRoute
+participant "transcriptionservice.createandprocesstranscription" as TranscriptionService
+participant "transcriptionservice.resolveaudiopath" as PathResolver
+participant "transcriptionservice.transcribewithwhisper" as WhisperService
+collections "Filesystem" as FS
+database DB
+
+Inspector -> Frontend: Selecciona audio y parámetros
+Frontend -> TranscriptionRoute: POST /api/v1/transcription\nTranscriptionCreate
+TranscriptionRoute -> TranscriptionService: createandprocesstranscription(db, payload)
+
+TranscriptionService -> DB: SELECT Inspection by inspection_id
+DB --> TranscriptionService: Inspection / null
+
+alt Inspección existe
+    opt evidence_id enviado
+        TranscriptionService -> DB: SELECT Evidence by evidence_id
+        DB --> TranscriptionService: Evidence / null
+    end
+
+    TranscriptionService -> PathResolver: resolveaudiopath(sourcefilepath)
+    PathResolver -> FS: Buscar ruta física válida
+    FS --> PathResolver: audioPath
+    PathResolver --> TranscriptionService: audioPath
+
+    TranscriptionService -> WhisperService: transcribewithwhisper(audioPath,\nmodelname, language)
+    WhisperService --> TranscriptionService: rawtext, confidence
+
+    TranscriptionService -> DB: INSERT Transcription(\ninspection_id, evidence_id,\nsourcefilepath, language,\nmodelname, rawtext,\nfinaltext=rawtext,\nprocessed=True,\neditedmanually=False)
+    DB --> TranscriptionService: Transcription
+
+    TranscriptionService --> TranscriptionRoute: Transcription
+    TranscriptionRoute --> Frontend: 201 TranscriptionResponse
+else Inspección no existe
+    TranscriptionService --> TranscriptionRoute: ValueError
+    TranscriptionRoute --> Frontend: 404 Inspection not found
+end
+
+Frontend --> Inspector: Muestra transcripción creada
+
+@enduml

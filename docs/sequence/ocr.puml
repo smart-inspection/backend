@@ -1,0 +1,46 @@
+@startuml
+title 6. Procesamiento de OCR
+
+actor Inspector
+participant Frontend
+participant "OCR API\nPOST /api/v1/ocr/evidences/{evidence_id}/extract" as OcrExtractRoute
+participant "ocrservice.extracttextfromevidence" as OcrService
+participant "ocrservice.resolvefilepath" as FileResolver
+participant "ocrservice.preprocessimage" as Preprocess
+participant "PaddleOCR" as Paddle
+participant "OCR API\nPOST /api/v1/ocr/inspections/{inspection_id}/validate" as OcrValidateRoute
+participant "validationservice.validateinspectionocr" as ValidationService
+database DB
+
+Inspector -> Frontend: Solicita OCR de evidencia
+Frontend -> OcrExtractRoute: POST /api/v1/ocr/evidences/{evidence_id}/extract
+OcrExtractRoute -> OcrService: extracttextfromevidence(db, evidence_id)
+
+OcrService -> DB: SELECT Evidence
+DB --> OcrService: Evidence
+OcrService -> FileResolver: resolvefilepath(evidence.filepath)
+FileResolver --> OcrService: imagePath
+OcrService -> Preprocess: preprocessimage(imagePath)
+Preprocess --> OcrService: processedPath
+OcrService -> Paddle: predict(processedPath)
+Paddle --> OcrService: texts, scores
+
+OcrService -> DB: UPDATE Evidence\nocrextractedtext,\nocrconfidence,\nocrprocessed=True,\nocrlastprocessedat
+DB --> OcrService: Evidence actualizada
+OcrService --> OcrExtractRoute: OCRExtractResponse
+OcrExtractRoute --> Frontend: Texto OCR por evidencia
+
+Frontend -> OcrValidateRoute: POST /api/v1/ocr/inspections/{inspection_id}/validate
+OcrValidateRoute -> ValidationService: validateinspectionocr(db, inspection_id)
+ValidationService -> DB: Cargar Inspection + fields + evidences
+DB --> ValidationService: Datos de inspección
+
+ValidationService -> ValidationService: Comparar manualvalue vs ocrvalue\ncalcular validationstatus,\nvalidationmessage,\nconfidence y finalvalue
+ValidationService -> DB: UPDATE InspectionField(s)
+DB --> ValidationService: Campos actualizados
+
+ValidationService --> OcrValidateRoute: OCRValidationResponse
+OcrValidateRoute --> Frontend: Resumen y resultados OCR
+Frontend --> Inspector: Visualiza coincidencias y discrepancias
+
+@enduml

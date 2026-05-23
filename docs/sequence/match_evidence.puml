@@ -1,0 +1,34 @@
+@startuml
+title 4. Matchear evidencias
+
+actor Inspector
+participant Frontend
+participant "Evidences API\nPOST /api/v1/inspections/{inspection_id}/evidences" as EvidencesRoute
+participant "evidenceservice.createevidence" as EvidenceService
+participant "evidencelabelservice.resolveevidencelabel" as LabelService
+participant "evidencelabelservice.buildslot" as SlotBuilder
+database DB
+
+Inspector -> Frontend: Envía evidencia con rawlabel,\ncomponentcode, axlenumber, side
+Frontend -> EvidencesRoute: POST evidencia
+EvidencesRoute -> EvidenceService: createevidence(...)
+
+EvidenceService -> LabelService: resolveevidencelabel(rawlabel,\ncomponentcode, axlenumber,\nside, isreference)
+
+LabelService -> LabelService: normalizetext(rawlabel)
+LabelService -> SlotBuilder: buildslot(normalizedlabel,\ncomponentcode, axlenumber,\nside, isreference)
+
+SlotBuilder -> SlotBuilder: inferside(...)
+SlotBuilder -> SlotBuilder: inferaxlenumber(...)
+SlotBuilder -> SlotBuilder: Aplicar reglas de matching\ncover_semitrailer\nplate_technical\nplate_vehicle\nkingpin_subject\nkingpin_reference\nkingpin_plate_subject\nbalancer\nspring_support\nchassis_general\njournal{n}{side}\naxle{n}{side}end
+
+SlotBuilder --> LabelService: EvidenceLabelResult
+LabelService --> EvidenceService: rawlabel, normalizedlabel,\nevidenceslot, componentcode,\naxlenumber, side, isreference,\nlabelconfidence, metadatajson
+
+EvidenceService -> DB: INSERT Evidence con label enriquecido
+DB --> EvidenceService: Evidence persistida
+EvidenceService --> EvidencesRoute: Evidence
+EvidencesRoute --> Frontend: EvidenceResponse enriquecida
+Frontend --> Inspector: Visualiza evidencia matcheada
+
+@enduml

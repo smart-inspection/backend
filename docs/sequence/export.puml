@@ -1,0 +1,46 @@
+@startuml
+title 9. Exportación PDF/DOCX
+
+actor Inspector
+participant Frontend
+participant "Report Export API" as ExportRoute
+participant "reportexportservice" as ExportService
+participant "buildcompanyreportcontext" as ContextBuilder
+participant "builddocxdocument" as DocxBuilder
+participant "buildpdfstory" as PdfBuilder
+collections "Filesystem / output" as Files
+database DB
+
+Inspector -> Frontend: Solicita exportación del borrador
+
+alt Exportar PDF
+    Frontend -> ExportRoute: GET /api/v1/report-export/pdf/{draft_id}
+    ExportRoute -> ExportService: exportreportpdf(db, draft_id)
+    ExportService -> ContextBuilder: buildcompanyreportcontext(db, draft_id)
+    ContextBuilder -> DB: Cargar draft + inspection +\nfields + evidences + transcriptions
+    DB --> ContextBuilder: context
+    ContextBuilder --> ExportService: context
+    ExportService -> PdfBuilder: buildpdfstory(context)
+    PdfBuilder --> ExportService: story
+    ExportService -> Files: SimpleDocTemplate.build(...)\nwrite .pdf
+    Files --> ExportService: pdfPath
+    ExportService --> ExportRoute: filepath
+    ExportRoute --> Frontend: FileResponse(application/pdf)
+else Exportar DOCX
+    Frontend -> ExportRoute: GET /api/v1/report-export/docx/{draft_id}
+    ExportRoute -> ExportService: exportreportdocx(db, draft_id)
+    ExportService -> ContextBuilder: buildcompanyreportcontext(db, draft_id)
+    ContextBuilder -> DB: Cargar draft + inspection +\nfields + evidences + transcriptions
+    DB --> ContextBuilder: context
+    ContextBuilder --> ExportService: context
+    ExportService -> DocxBuilder: builddocxdocument(context)
+    DocxBuilder --> ExportService: Document
+    ExportService -> Files: document.save(...)\nwrite .docx
+    Files --> ExportService: docxPath
+    ExportService --> ExportRoute: filepath
+    ExportRoute --> Frontend: FileResponse(application/vnd.openxmlformats-officedocument.wordprocessingml.document)
+end
+
+Frontend --> Inspector: Descarga archivo exportado
+
+@enduml
