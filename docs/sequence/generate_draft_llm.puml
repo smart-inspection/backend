@@ -1,0 +1,39 @@
+@startuml
+title 8. Generación de borrador con LLM
+
+actor Inspector
+participant Frontend
+participant "LLM Report API\nPOST /api/v1/llm-report/generate/{inspection_id}" as LlmRoute
+participant "llmreportservice.generatellmreportdraft" as LlmService
+participant "llmreportservice.buildsnapshot" as SnapshotBuilder
+participant "llmreportservice.getllm" as LlmFactory
+participant "ChatOllama / Ollama" as Ollama
+database DB
+
+Inspector -> Frontend: Solicita borrador con LLM
+Frontend -> LlmRoute: POST /api/v1/llm-report/generate/{inspection_id}\nLLMReportGenerateRequest
+LlmRoute -> LlmService: generatellmreportdraft(db,\ninspection_id, templateversion)
+
+LlmService -> DB: Cargar Inspection + fields + evidences
+DB --> LlmService: Datos de inspección
+LlmService -> DB: Cargar Transcription(s)
+DB --> LlmService: Transcripciones
+
+LlmService -> SnapshotBuilder: buildsnapshot(inspection,\ntranscriptions)
+SnapshotBuilder --> LlmService: snapshot
+
+LlmService -> LlmService: Construir generalsection,\ncriticalsection, fieldssection,\nevidencesection, ocrsection,\ntranscriptionsection,\ndeterministicconclusion
+LlmService -> LlmFactory: getllm()
+LlmFactory --> LlmService: ChatOllama
+LlmService -> Ollama: structured output request\ncon prompt + snapshot + sections
+Ollama --> LlmService: secciones estructuradas
+
+LlmService -> LlmService: renderfinaltext(...)
+LlmService -> DB: INSERT ReportDraft(\ninspection_id, title,\ntemplateversion,\nstatus="generatedllm",\ngeneratedtext,\nsourcesnapshot,\ngenerationtimems)
+DB --> LlmService: Draft persistido
+
+LlmService --> LlmRoute: ReportDraft
+LlmRoute --> Frontend: 201 ReportDraftResponse
+Frontend --> Inspector: Muestra borrador con LLM
+
+@enduml

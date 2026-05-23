@@ -1,0 +1,33 @@
+@startuml
+title 7. Generación de borrador sin LLM
+
+actor Inspector
+participant Frontend
+participant "Report Draft API\nPOST /api/v1/report-drafts/generate/{inspection_id}" as ReportDraftRoute
+participant "reportdraftservice.generatereportdraft" as DraftService
+participant "reportdraftservice.rendertemplate" as TemplateRenderer
+participant "reportstatusservice.registerreportevent" as StatusEvents
+database DB
+
+Inspector -> Frontend: Solicita borrador automático sin LLM
+Frontend -> ReportDraftRoute: POST /api/v1/report-drafts/generate/{inspection_id}\nReportDraftGenerateRequest
+ReportDraftRoute -> DraftService: generatereportdraft(db,\ninspection_id, templateversion)
+
+DraftService -> DB: Cargar Inspection + fields + evidences
+DB --> DraftService: Datos de inspección
+DraftService -> DB: Cargar Transcription(s)
+DB --> DraftService: Transcripciones
+
+DraftService -> TemplateRenderer: rendertemplate(inspection,\ntranscriptions, templateversion)
+TemplateRenderer --> DraftService: generatedtext, snapshot
+
+DraftService -> DB: INSERT ReportDraft(\ninspection_id, title,\ntemplateversion,\nstatus="generated",\ngeneratedtext,\nsourcesnapshot,\ngenerationtimems,\nlastaction="draftgenerated")
+DraftService -> StatusEvents: registerreportevent(...,\naction="draftcreated")
+DraftService -> StatusEvents: registerreportevent(...,\naction="draftgenerated")
+DB --> DraftService: Draft persistido
+
+DraftService --> ReportDraftRoute: ReportDraft
+ReportDraftRoute --> Frontend: 201 ReportDraftResponse
+Frontend --> Inspector: Muestra borrador generado
+
+@enduml

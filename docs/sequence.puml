@@ -1,0 +1,93 @@
+@startuml
+title Diagrama de secuencia - Registrar inspección y generar informe
+
+actor Inspector
+participant "Frontend React" as FE
+participant "FastAPI Routes" as API
+participant "inspectionservice" as InspectionSvc
+participant "inspectionfieldservice" as FieldSvc
+participant "evidenceservice" as EvidenceSvc
+participant "ocrservice / validationservice" as OCRSvc
+participant "transcriptionservice" as TranscriptionSvc
+participant "reportdraftservice" as DraftSvc
+participant "LangChain + Ollama\nLLaMA 3" as LLM
+database "PostgreSQL" as DB
+collections "Storage" as FS
+
+== Registro de inspección ==
+Inspector -> FE : Completa formulario inicial
+FE -> API : POST /inspections
+API -> InspectionSvc : createInspection(payload)
+InspectionSvc -> DB : INSERT Inspection
+DB --> InspectionSvc : inspectionId
+InspectionSvc --> API : Inspection creada
+API --> FE : 201 Created
+
+== Registro de campos ==
+loop Por cada campo estructurado
+  FE -> API : POST /inspections/{id}/fields
+  API -> FieldSvc : createInspectionField(payload)
+  FieldSvc -> DB : INSERT InspectionField
+  DB --> FieldSvc : ok
+  FieldSvc --> API : campo registrado
+  API --> FE : 201 Created
+end
+
+== Carga de evidencias ==
+loop Por cada evidencia
+  FE -> API : POST /inspections/{id}/evidences
+  API -> EvidenceSvc : createEvidence(file, metadata)
+  EvidenceSvc -> FS : guardar archivo
+  EvidenceSvc -> DB : INSERT Evidence
+  DB --> EvidenceSvc : evidenceId
+  EvidenceSvc --> API : evidencia registrada
+  API --> FE : 201 Created
+end
+
+== OCR y validación ==
+FE -> API : POST /ocr/evidences/{evidenceId}/extract
+API -> OCRSvc : extractTextFromEvidence(evidenceId)
+OCRSvc -> FS : leer imagen
+OCRSvc -> OCRSvc : preprocessImage()
+OCRSvc -> OCRSvc : Tesseract OCR
+OCRSvc -> DB : UPDATE Evidence.ocr*
+DB --> OCRSvc : ok
+OCRSvc --> API : texto extraído
+API --> FE : OCR result
+
+FE -> API : POST /ocr/inspections/{id}/validate
+API -> OCRSvc : validateInspectionOCR(id)
+OCRSvc -> DB : SELECT fields + evidences
+OCRSvc -> OCRSvc : comparar manualValue vs ocrValue
+OCRSvc -> DB : UPDATE InspectionField.validation*
+DB --> OCRSvc : resumen de validación
+OCRSvc --> API : matched/mismatched/notfound
+API --> FE : validation summary
+
+== Transcripción ==
+opt Existe audio de observaciones
+  FE -> API : POST /transcription
+  API -> TranscriptionSvc : createAndProcessTranscription(payload)
+  TranscriptionSvc -> FS : leer audio
+  TranscriptionSvc -> TranscriptionSvc : Whisper transcribe()
+  TranscriptionSvc -> DB : INSERT Transcription
+  DB --> TranscriptionSvc : transcriptionId
+  TranscriptionSvc --> API : transcripción generada
+  API --> FE : transcription result
+end
+
+== Generación de borrador ==
+Inspector -> FE : Solicita generar informe
+FE -> API : POST /report-drafts/generate/{inspectionId}
+API -> DraftSvc : generateReportDraft(inspectionId, templateVersion)
+DraftSvc -> DB : SELECT inspection + fields + evidences + transcriptions
+DB --> DraftSvc : snapshot de datos
+DraftSvc -> DraftSvc : renderTemplate() / buildContext()
+DraftSvc -> LLM : generar secciones del informe
+LLM --> DraftSvc : summary/findings/recommendations/finalReport
+DraftSvc -> DB : INSERT ReportDraft
+DB --> DraftSvc : draftId
+DraftSvc --> API : borrador generado
+API --> FE : 201 Created + draft
+
+@enduml

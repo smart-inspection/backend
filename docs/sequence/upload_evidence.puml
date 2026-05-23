@@ -1,0 +1,39 @@
+@startuml
+title 2. Subir evidencias
+
+actor Inspector
+participant Frontend
+participant "Evidences API\nPOST /api/v1/inspections/{inspection_id}/evidences" as EvidencesRoute
+participant "evidenceservice.createevidence" as EvidenceService
+participant "storageservice.saveevidenceupload" as StorageService
+participant "evidencelabelservice.resolveevidencelabel" as LabelService
+collections "uploads/inspections/{inspection_id}" as Storage
+database DB
+
+Inspector -> Frontend: Selecciona imagen y metadatos
+Frontend -> EvidencesRoute: POST multipart/form-data\nfile, evidencecategory, caption,\nrawlabel, componentcode, axlenumber,\nside, isreference
+EvidencesRoute -> EvidenceService: createevidence(...)
+EvidenceService -> DB: SELECT Inspection by inspection_id
+DB --> EvidenceService: Inspection / null
+
+alt Inspección existe
+    EvidenceService -> StorageService: saveevidenceupload(inspection_id, file)
+    StorageService -> Storage: Validar tipo/peso y guardar archivo
+    Storage --> StorageService: relativepath, contenttype
+    StorageService --> EvidenceService: filepath, filetype
+
+    EvidenceService -> LabelService: resolveevidencelabel(rawlabel,\ncomponentcode, axlenumber,\nside, isreference)
+    LabelService --> EvidenceService: EvidenceLabelResult
+
+    EvidenceService -> DB: INSERT Evidence(\ninspection_id, filepath, filetype,\nevidencecategory, caption,\nrawlabel, normalizedlabel,\nevidenceslot, componentcode,\naxlenumber, side, isreference,\nlabelconfidence, metadatajson,\nocrprocessed=False)
+    DB --> EvidenceService: Evidence
+    EvidenceService --> EvidencesRoute: Evidence
+    EvidencesRoute --> Frontend: 201 EvidenceResponse
+else Inspección no existe
+    EvidenceService --> EvidencesRoute: None
+    EvidencesRoute --> Frontend: 404 Inspection not found
+end
+
+Frontend --> Inspector: Muestra evidencia registrada
+
+@enduml

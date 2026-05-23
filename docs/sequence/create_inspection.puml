@@ -1,0 +1,19 @@
+@startuml
+title 1. Crear inspección
+
+actor Inspector
+participant Frontend
+participant "Inspections API\nPOST /api/v1/inspections" as InspectionsRoute
+participant "inspectionservice.createinspection" as InspectionService
+database DB
+
+Inspector -> Frontend: Completa formulario de inspección
+Frontend -> InspectionsRoute: POST /api/v1/inspections\nInspectionCreate
+InspectionsRoute -> InspectionService: createinspection(db, payload)
+InspectionService -> DB: INSERT Inspection\n(code, clientname, equipmenttype,\ninspectiontype, inspectiondate, location,\nrequestedby, responsibleinspector, status="draft")
+DB --> InspectionService: Inspection persistida
+InspectionService --> InspectionsRoute: Inspection
+InspectionsRoute --> Frontend: 201 InspectionResponse
+Frontend --> Inspector: Muestra inspección creada
+
+@enduml

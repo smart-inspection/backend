@@ -1,0 +1,29 @@
+@startuml
+title 5. Editar transcripción
+
+actor Inspector
+participant Frontend
+participant "Transcription API\nPUT /api/v1/transcription/{transcription_id}" as TranscriptionRoute
+participant "transcriptionservice.updatetranscriptiontext" as TranscriptionService
+database DB
+
+Inspector -> Frontend: Edita texto final de la transcripción
+Frontend -> TranscriptionRoute: PUT /api/v1/transcription/{id}\nTranscriptionUpdate
+TranscriptionRoute -> TranscriptionService: updatetranscriptiontext(db,\ntranscription_id, payload)
+
+TranscriptionService -> DB: SELECT Transcription by id
+DB --> TranscriptionService: Transcription / null
+
+alt Transcripción existe
+    TranscriptionService -> DB: UPDATE Transcription\nfinaltext=payload.finaltext,\neditedmanually=True,\nupdatedat=datetime.utcnow()
+    DB --> TranscriptionService: Transcription actualizada
+    TranscriptionService --> TranscriptionRoute: Transcription
+    TranscriptionRoute --> Frontend: 200 TranscriptionResponse
+else Transcripción no existe
+    TranscriptionService --> TranscriptionRoute: None
+    TranscriptionRoute --> Frontend: 404 Transcription not found
+end
+
+Frontend --> Inspector: Muestra texto editado
+
+@enduml
