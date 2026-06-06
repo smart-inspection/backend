@@ -1,7 +1,7 @@
 """add evidence label slots
 
 Revision ID: 20260515_01
-Revises: <TU_REVISION_ANTERIOR>
+Revises:
 Create Date: 2026-05-15 11:20:00.000000
 """
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 revision = "20260515_01"
-down_revision = "<TU_REVISION_ANTERIOR>"
+down_revision = None
 branch_labels = None
 depends_on = None
 
