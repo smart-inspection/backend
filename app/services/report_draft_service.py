@@ -492,11 +492,13 @@ def generate_report_draft(
     generated_text, snapshot = _render_template(inspection, transcriptions, template_version)
     elapsed_ms = int((perf_counter() - started) * 1000)
 
+    draft_status = ((inspection.status or "draft").strip().lower())
+
     draft = ReportDraft(
         inspection_id=inspection.id,
         title=f"Borrador de informe - Inspección {inspection.id}",
         template_version=template_version,
-        status="generated",
+        status=draft_status,
         generated_text=generated_text,
         edited_text=None,
         source_snapshot=snapshot,
@@ -554,7 +556,7 @@ def update_report_draft(
     db: Session,
     draft_id: int,
     edited_text: str,
-    status: str = "edited",
+    status: str | None = None,
     user_id: int | None = None,
     user_name: str | None = None,
 ) -> ReportDraft | None:
@@ -562,9 +564,21 @@ def update_report_draft(
     if not draft:
         return None
 
-    previous_status = draft.status
+    inspection = (
+        db.query(Inspection)
+        .filter(Inspection.id == draft.inspection_id)
+        .first()
+    )
+
+    previous_status = (draft.status or "draft").strip().lower()
+    mirrored_status = (
+        ((inspection.status or previous_status).strip().lower())
+        if inspection
+        else previous_status
+    )
+
     draft.edited_text = edited_text
-    draft.status = status
+    draft.status = mirrored_status
     draft.last_action = "draft_edited"
 
     register_report_event(
@@ -575,7 +589,10 @@ def update_report_draft(
         actor_name=user_name,
         from_status=previous_status,
         to_status=draft.status,
-        metadata_json={"has_edited_text": bool(draft.edited_text)},
+        metadata_json={
+            "has_edited_text": bool(draft.edited_text),
+            "mirrored_from_inspection": True,
+        },
     )
 
     db.add(draft)

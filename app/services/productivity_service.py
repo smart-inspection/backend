@@ -9,12 +9,54 @@ from app.schemas.productivity import ProductivityCreate, ProductivityUpdate
 
 GOAL_MINUTES = 20
 
-REPORT_STATUS_TO_OPERATIONAL_STATUS = {
+INSPECTION_STATUS_TO_OPERATIONAL_STATUS = {
     "draft": "pending",
-    "inreview": "in_progress",
+    "in_review": "in_progress",
     "observed": "observed",
     "finalized": "completed",
 }
+
+
+def sync_productivity_from_inspection_status(
+    db: Session,
+    inspection_id: int,
+) -> InspectionProductivity | None:
+    inspection = db.query(Inspection).filter(Inspection.id == inspection_id).first()
+    if not inspection:
+        return None
+
+    productivity = get_productivity_by_inspection(db, inspection_id)
+
+    if not productivity:
+        productivity = InspectionProductivity(
+            inspection_id=inspection_id,
+            inspector_name=getattr(inspection, "responsible_inspector", None),
+            scheduled_date=getattr(inspection, "inspection_date", None),
+            operational_status="pending",
+        )
+
+    normalized_status = (inspection.status or "draft").strip().lower()
+    productivity.operational_status = INSPECTION_STATUS_TO_OPERATIONAL_STATUS.get(
+        normalized_status,
+        "pending",
+    )
+
+    now = datetime.now(timezone.utc)
+
+    if normalized_status in {"in_review", "observed", "finalized"} and not productivity.report_started_at:
+        productivity.report_started_at = now
+
+    if normalized_status == "finalized":
+        productivity.report_finished_at = productivity.report_finished_at or now
+
+        if productivity.report_started_at and productivity.report_finished_at:
+            duration = productivity.report_finished_at - productivity.report_started_at
+            productivity.duration_minutes = round(duration.total_seconds() / 60, 2)
+            productivity.met_goal = productivity.duration_minutes <= GOAL_MINUTES
+
+    db.add(productivity)
+    db.flush()
+    return productivity
 
 
 def _resolve_inspector_name(inspection: Inspection) -> str | None:
@@ -31,55 +73,6 @@ def _resolve_scheduled_date(inspection: Inspection):
         or getattr(inspection, "inspection_date", None)
         or getattr(inspection, "inspectiondate", None)
     )
-
-
-def sync_productivity_from_report_status(
-    db: Session,
-    inspection_id: int,
-    report_status: str,
-) -> InspectionProductivity | None:
-    inspection = db.query(Inspection).filter(Inspection.id == inspection_id).first()
-    if not inspection:
-        return None
-
-    productivity = get_productivity_by_inspection(db, inspection_id)
-
-    if not productivity:
-        productivity = InspectionProductivity(
-            inspection_id=inspection_id,
-            inspector_name=_resolve_inspector_name(inspection),
-            scheduled_date=_resolve_scheduled_date(inspection),
-            operational_status="pending",
-        )
-
-    if not productivity.inspector_name:
-        productivity.inspector_name = _resolve_inspector_name(inspection)
-
-    if not productivity.scheduled_date:
-        productivity.scheduled_date = _resolve_scheduled_date(inspection)
-
-    normalized_status = (report_status or "").strip().lower()
-    productivity.operational_status = REPORT_STATUS_TO_OPERATIONAL_STATUS.get(
-        normalized_status,
-        productivity.operational_status or "pending",
-    )
-
-    now = datetime.now(timezone.utc)
-
-    if normalized_status in {"inreview", "observed", "finalized"} and not productivity.report_started_at:
-        productivity.report_started_at = now
-
-    if normalized_status == "finalized":
-        productivity.report_finished_at = productivity.report_finished_at or now
-
-        if productivity.report_started_at and productivity.report_finished_at:
-            duration = productivity.report_finished_at - productivity.report_started_at
-            productivity.duration_minutes = round(duration.total_seconds() / 60, 2)
-            productivity.met_goal = productivity.duration_minutes <= GOAL_MINUTES
-
-    db.add(productivity)
-    db.flush()
-    return productivity
 
 
 def get_productivity_by_inspection(db: Session, inspection_id: int) -> InspectionProductivity | None:

@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 
 from app.db.models import ReportDraft, ReportStatusLog
 
-from app.services.productivity_service import sync_productivity_from_report_status
+from app.services.inspection_service import update_inspection_status
+from app.services.productivity_service import sync_productivity_from_inspection_status
 
 REPORT_STATUS_DRAFT = "draft"
 REPORT_STATUS_IN_REVIEW = "in_review"
@@ -137,10 +138,15 @@ def change_report_status(
             metadata_json={"reason": "manual_status_update"},
         )
 
-        sync_productivity_from_report_status(
+        update_inspection_status(
             db=db,
             inspection_id=report.inspection_id,
-            report_status=target_status,
+            new_status=target_status,
+        )
+
+        sync_productivity_from_inspection_status(
+            db=db,
+            inspection_id=report.inspection_id,
         )
 
     db.add(report)
