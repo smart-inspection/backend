@@ -16,6 +16,24 @@ INSPECTION_STATUS_TO_OPERATIONAL_STATUS = {
     "finalized": "completed",
 }
 
+FILTER_STATUS_TO_OPERATIONAL_STATUS = {
+    "draft": "pending",
+    "pending": "pending",
+    "in_review": "in_progress",
+    "in_progress": "in_progress",
+    "observed": "observed",
+    "finalized": "completed",
+    "completed": "completed",
+}
+
+
+def _normalize_operational_status_filter(value: str | None) -> str | None:
+    if not value:
+        return None
+
+    normalized = value.strip().lower()
+    return FILTER_STATUS_TO_OPERATIONAL_STATUS.get(normalized, normalized)
+
 
 def sync_productivity_from_inspection_status(
     db: Session,
@@ -197,8 +215,13 @@ def _build_productivity_filters(
         query = query.filter(InspectionProductivity.scheduled_date <= date_to)
     if inspector_name:
         query = query.filter(InspectionProductivity.inspector_name == inspector_name)
-    if operational_status:
-        query = query.filter(InspectionProductivity.operational_status == operational_status)
+
+    normalized_operational_status = _normalize_operational_status_filter(operational_status)
+    if normalized_operational_status:
+        query = query.filter(
+            InspectionProductivity.operational_status == normalized_operational_status
+        )
+
     return query
 
 
@@ -303,6 +326,7 @@ def get_productivity_by_status(
     date_from: date | None = None,
     date_to: date | None = None,
     inspector_name: str | None = None,
+    operational_status: str | None = None,
 ) -> list[dict]:
     query = db.query(InspectionProductivity)
     query = _build_productivity_filters(
@@ -310,6 +334,7 @@ def get_productivity_by_status(
         date_from=date_from,
         date_to=date_to,
         inspector_name=inspector_name,
+        operational_status=operational_status,
     )
 
     rows = (
@@ -358,5 +383,6 @@ def get_productivity_dashboard(
             date_from=date_from,
             date_to=date_to,
             inspector_name=inspector_name,
+            operational_status=operational_status,
         ),
     }
