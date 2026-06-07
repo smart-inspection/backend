@@ -4,12 +4,12 @@ from sqlalchemy.orm import Session
 from app.db.session import SessionLocal
 from app.schemas.inspection_request import (
     InspectionRequestCreate,
-    InspectionRequestResponse,
+    InspectionRequestResponse, InspectionRequestConvert,
 )
 from app.services.inspection_request_service import (
     create_inspection_request,
     get_inspection_request_by_id,
-    list_inspection_requests,
+    list_inspection_requests, convert_inspection_request,
 )
 
 router = APIRouter(prefix="/inspection-requests", tags=["inspection-requests"])
@@ -47,3 +47,14 @@ def get_inspection_request_endpoint(
     if not inspection_request:
         raise HTTPException(status_code=404, detail="Inspection request not found")
     return inspection_request
+
+@router.patch("/{inspection_request_id}/convert", response_model=InspectionRequestResponse)
+def convert_inspection_request_endpoint(
+        inspection_request_id: int,
+        payload: InspectionRequestConvert,
+        db: Session = Depends(get_db),
+):
+    try:
+        return convert_inspection_request(db, inspection_request_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))

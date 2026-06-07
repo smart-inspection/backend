@@ -1,5 +1,5 @@
-from sqlalchemy import Date, DateTime, String, Text, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Date, DateTime, String, Text, func, ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
@@ -24,14 +24,17 @@ class InspectionRequest(Base):
         server_default="pending",
         index=True,
     )
-    created_at: Mapped[DateTime] = mapped_column(
-        DateTime(timezone=True),
+    created_at: Mapped[DateTime] = mapped_column(DateTime(
+        timezone=True),
         server_default=func.now(),
-        nullable=False,
+        nullable=False
     )
-    updated_at: Mapped[DateTime] = mapped_column(
-        DateTime(timezone=True),
+    updated_at: Mapped[DateTime] = mapped_column(DateTime(
+        timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
-        nullable=False,
+        nullable=False
     )
+    inspection_id: Mapped[int | None] = mapped_column(ForeignKey("inspections.id"), nullable=True, index=True)
+
+    inspection = relationship("Inspection")

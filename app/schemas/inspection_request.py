@@ -22,7 +22,12 @@ class InspectionRequestCreate(InspectionRequestBase):
 
 class InspectionRequestResponse(InspectionRequestBase):
     id: int
+    inspection_id: int | None = None
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+class InspectionRequestConvert(BaseModel):
+    inspection_id: int
+    status: str = Field(default="converted", max_length=50)
