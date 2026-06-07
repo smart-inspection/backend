@@ -18,7 +18,8 @@ from app.api.routes.llm_report import router as llm_report_router
 from app.api.routes.report_export import router as report_export_router
 from app.api.routes.report_status import router as report_status_router
 from app.api.routes.inspection_enrichment import router as inspection_enrichment_router
-from app.api.routes.productivity import router as productivityrouter
+from app.api.routes.productivity import router as productivity_router
+from app.api.routes.inspection_requests import router as inspection_requests_router
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -42,7 +43,8 @@ app.include_router(llm_report_router, prefix=settings.api_v1_prefix)
 app.include_router(report_export_router, prefix=settings.api_v1_prefix)
 app.include_router(report_status_router, prefix=settings.api_v1_prefix)
 app.include_router(inspection_enrichment_router, prefix=settings.api_v1_prefix)
-app.include_router(productivityrouter, prefix=settings.api_v1_prefix)
+app.include_router(productivity_router, prefix=settings.api_v1_prefix)
+app.include_router(inspection_requests_router, prefix=settings.api_v1_prefix)
 
 app.mount(f"{settings.api_v1_prefix}/uploads", StaticFiles(directory="uploads"), name="uploads")
 
