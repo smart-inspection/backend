@@ -8,6 +8,10 @@ from app.schemas.productivity import (
     ProductivityResponse,
     ProductivityStartRequest,
     ProductivityUpdate,
+    ProductivityByInspectorItem,
+    ProductivityDashboardResponse,
+    ProductivityStatusItem,
+    ProductivitySummaryResponse,
 )
 from app.services.productivity_service import (
     create_productivity,
@@ -15,22 +19,14 @@ from app.services.productivity_service import (
     get_productivity_by_inspection,
     start_productivity,
     update_productivity,
-)
-
-from datetime import date
-from fastapi import Query
-from app.schemas.productivity import (
-    ProductivityByInspectorItem,
-    ProductivityDashboardResponse,
-    ProductivityStatusItem,
-    ProductivitySummaryResponse,
-)
-from app.services.productivity_service import (
     get_productivity_by_inspector,
     get_productivity_by_status,
     get_productivity_dashboard,
     get_productivity_summary,
 )
+
+from datetime import date
+from fastapi import Query
 
 router = APIRouter(prefix="/productivity", tags=["productivity"])
 

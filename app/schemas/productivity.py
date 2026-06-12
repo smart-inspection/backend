@@ -1,10 +1,14 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class ProductivityBase(BaseModel):
-    inspector_name: str | None = Field(default=None, max_length=150)
+    inspector_name: str | None = Field(
+        default=None,
+        max_length=150,
+        description="Nombre del inspector resuelto desde el usuario responsable de la inspección.",
+    )
     scheduled_date: date | None = None
     report_started_at: datetime | None = None
     report_finished_at: datetime | None = None
@@ -15,7 +19,11 @@ class ProductivityBase(BaseModel):
 
 class ProductivityCreate(BaseModel):
     inspection_id: int
-    inspector_name: str | None = Field(default=None, max_length=150)
+    inspector_name: str | None = Field(
+        default=None,
+        max_length=150,
+        description="Campo opcional solo para compatibilidad. El servicio prioriza el usuario responsable relacionado."
+    )
     scheduled_date: date | None = None
     operational_status: str = Field(default="pending", max_length=50)
 
@@ -30,7 +38,11 @@ class ProductivityFinishRequest(BaseModel):
 
 
 class ProductivityUpdate(BaseModel):
-    inspector_name: str | None = Field(default=None, max_length=150)
+    inspector_name: str | None = Field(
+        default=None,
+        max_length=150,
+        description="Campo de compatibilidad. El valor final se sincroniza desde la inspección cuando exista usuario responsable.",
+    )
     scheduled_date: date | None = None
     report_started_at: datetime | None = None
     report_finished_at: datetime | None = None
@@ -45,8 +57,7 @@ class ProductivityResponse(ProductivityBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ProductivitySummaryResponse(BaseModel):
     total_inspections: int

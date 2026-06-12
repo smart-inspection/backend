@@ -37,7 +37,11 @@ class Inspection(Base):
         nullable=False,
     )
 
-    responsible_inspector = relationship("User", foreign_keys=[responsible_inspector_id])
+    responsible_inspector = relationship(
+        "User",
+        back_populates="assigned_inspections",
+        foreign_keys=[responsible_inspector_id],
+    )
     fields = relationship("InspectionField", back_populates="inspection", cascade="all, delete-orphan")
     evidences = relationship("Evidence", back_populates="inspection", cascade="all, delete-orphan")
     report_drafts = relationship("ReportDraft", back_populates="inspection")

@@ -1,24 +1,15 @@
 from datetime import datetime, timezone
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from app.db.models import Inspection
+from app.db.models import Inspection, User
 from app.schemas.inspection import InspectionCreate
 
 
-VALID_INSPECTION_STATUSES = {
-    "draft",
-    "in_review",
-    "observed",
-    "finalized",
-}
+VALID_INSPECTION_STATUSES = {"draft", "inreview", "observed", "finalized"}
 
 
-def update_inspection_status(
-    db: Session,
-    inspection_id: int,
-    new_status: str,
-) -> Inspection | None:
+def update_inspection_status(db: Session, inspection_id: int, new_status: str) -> Inspection | None:
     inspection = get_inspection_by_id(db, inspection_id)
     if not inspection:
         return None
@@ -29,13 +20,17 @@ def update_inspection_status(
 
     inspection.status = normalized_status
     inspection.updated_at = datetime.now(timezone.utc)
-
     db.add(inspection)
     db.flush()
     return inspection
 
 
 def create_inspection(db: Session, payload: InspectionCreate) -> Inspection:
+    if payload.responsible_inspector_id is not None:
+        user = db.query(User).filter(User.id == payload.responsible_inspector_id).first()
+        if not user:
+            raise ValueError("Responsible inspector not found")
+
     inspection = Inspection(**payload.model_dump())
     db.add(inspection)
     db.commit()
@@ -44,8 +39,18 @@ def create_inspection(db: Session, payload: InspectionCreate) -> Inspection:
 
 
 def list_inspections(db: Session) -> list[Inspection]:
-    return db.query(Inspection).order_by(Inspection.id.desc()).all()
+    return (
+        db.query(Inspection)
+        .options(selectinload(Inspection.responsible_inspector))
+        .order_by(Inspection.id.desc())
+        .all()
+    )
 
 
 def get_inspection_by_id(db: Session, inspection_id: int) -> Inspection | None:
-    return db.query(Inspection).filter(Inspection.id == inspection_id).first()
+    return (
+        db.query(Inspection)
+        .options(selectinload(Inspection.responsible_inspector))
+        .filter(Inspection.id == inspection_id)
+        .first()
+    )
