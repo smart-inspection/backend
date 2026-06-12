@@ -21,6 +21,7 @@ from app.api.routes.inspection_enrichment import router as inspection_enrichment
 from app.api.routes.productivity import router as productivity_router
 from app.api.routes.inspection_requests import router as inspection_requests_router
 from app.api.routes.auth import router as auth_router
+from app.api.routes.users import router as users_router
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -35,6 +36,7 @@ Path("uploads").mkdir(parents=True, exist_ok=True)
 
 app.include_router(health_router, prefix=settings.api_v1_prefix)
 app.include_router(auth_router, prefix=settings.api_v1_prefix)
+app.include_router(users_router, prefix=settings.api_v1_prefix)
 app.include_router(inspections_router, prefix=settings.api_v1_prefix)
 app.include_router(inspection_fields_router, prefix=settings.api_v1_prefix)
 app.include_router(evidences_router, prefix=settings.api_v1_prefix)
