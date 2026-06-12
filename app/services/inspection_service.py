@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.db.models import Inspection, InspectionProductivity, User
 from app.schemas.inspection import InspectionCreate
 
-VALID_INSPECTION_STATUSES = {"draft", "inreview", "observed", "finalized"}
+VALID_INSPECTION_STATUSES = {"draft", "in_review", "observed", "finalized"}
 
 
 def _resolve_inspector_name(user: User | None) -> str | None:

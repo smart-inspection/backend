@@ -19,7 +19,7 @@ VALID_OPERATIONAL_STATUSES = {
 
 INSPECTION_STATUS_TO_OPERATIONAL_STATUS = {
     "draft": "pending",
-    "inreview": "in_progress",
+    "in_review": "in_progress",
     "observed": "blocked",
     "finalized": "completed",
 }
@@ -494,7 +494,7 @@ def sync_productivity_from_inspection_status(
 
     now = datetime.now(timezone.utc)
 
-    if normalized_status in {"inreview", "observed", "finalized"} and productivity.report_started_at is None:
+    if normalized_status in {"in_review", "observed", "finalized"} and productivity.report_started_at is None:
         productivity.report_started_at = now
 
     if normalized_status == "finalized" and productivity.report_finished_at is None:
