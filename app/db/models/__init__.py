@@ -4,6 +4,9 @@ from app.db.models.evidence import Evidence
 from app.db.models.transcription import Transcription
 from app.db.models.report_draft import ReportDraft
 from app.db.models.report_status_log import ReportStatusLog
+from app.db.models.inspection_productivity import InspectionProductivity
+from app.db.models.inspection_request import InspectionRequest
+from app.db.models.users import User
 
 __all__ = [
     "Inspection",
@@ -11,5 +14,8 @@ __all__ = [
     "Evidence",
     "Transcription",
     "ReportDraft",
-    "ReportStatusLog"
+    "ReportStatusLog",
+    "InspectionProductivity",
+    "InspectionRequest",
+    "User",
 ]

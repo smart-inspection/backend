@@ -1,23 +1,27 @@
 from datetime import date, datetime
-from pydantic import BaseModel, Field
+
+from pydantic import BaseModel, ConfigDict
+
 
 class InspectionBase(BaseModel):
-    code: str = Field(..., max_length=50)
-    client_name: str = Field(..., max_length=150)
-    equipment_type: str = Field(..., max_length=100)
-    inspection_type: str = Field(..., max_length=100)
+    code: str
+    client_name: str
+    equipment_type: str
+    inspection_type: str
     inspection_date: date
     location: str | None = None
     requested_by: str | None = None
-    responsible_inspector: str | None = None
+    responsible_inspector_id: int | None = None
     status: str = "draft"
+
 
 class InspectionCreate(InspectionBase):
     pass
 
+
 class InspectionResponse(InspectionBase):
     id: int
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)

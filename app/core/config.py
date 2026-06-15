@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     app_name: str = "Smart Inspection API"
     app_env: str = "dev"
     debug: bool = True
+
     api_v1_prefix: str = "/api/v1"
     database_url: str
 
@@ -14,6 +15,10 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3"
     llm_temperature: float = 0.2
     llm_timeout: int = 120
+
+    secret_key: str = "cambiar"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60 * 8
 
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",

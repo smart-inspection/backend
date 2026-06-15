@@ -17,6 +17,28 @@ def build_file_url(filepath: str) -> str:
     normalized = filepath.replace("\\", "/").lstrip("/")
     return f"/{normalized}"
 
+def is_image_file_type(filetype: str | None) -> bool:
+    return bool(filetype and filetype.lower().startswith("image/"))
+
+def build_non_visual_label_data(
+        raw_label: str | None,
+        component_code: str | None,
+        axle_number: int | None,
+        side: str | None,
+        is_reference: bool,
+) -> dict[str, Any]:
+    return {
+        "raw_label": raw_label,
+        "normalized_label": None,
+        "evidence_slot": None,
+        "component_code": component_code,
+        "axle_number": axle_number,
+        "side": side,
+        "is_reference": is_reference,
+        "label_confidence": None,
+        "metadata_json": None,
+    }
+
 def serialize_evidence(evidence: Evidence) -> dict[str, Any]:
     ocr_confidence = evidence.ocr_confidence
     label_confidence = evidence.label_confidence
@@ -73,29 +95,48 @@ def create_evidence(
 
     relative_path, content_type = save_evidence_upload(inspection_id, file)
 
-    label_result = resolve_evidence_label(
-        raw_label=raw_label,
-        component_code=component_code,
-        axle_number=axle_number,
-        side=side,
-        is_reference=is_reference,
-    )
-
+    if is_image_file_type(content_type):
+        label_result = resolve_evidence_label(
+            raw_label=raw_label,
+            component_code=component_code,
+            axle_number=axle_number,
+            side=side,
+            is_reference=is_reference,
+        )
+        label_data = {
+            "raw_label": label_result.raw_label,
+            "normalized_label": label_result.normalized_label,
+            "evidence_slot": label_result.evidence_slot,
+            "component_code": label_result.component_code,
+            "axle_number": label_result.axle_number,
+            "side": label_result.side,
+            "is_reference": label_result.is_reference,
+            "label_confidence": label_result.label_confidence,
+            "metadata_json": label_result.metadata_json,
+        }
+    else:
+        label_data = build_non_visual_label_data(
+            raw_label=raw_label,
+            component_code=component_code,
+            axle_number=axle_number,
+            side=side,
+            is_reference=is_reference,
+        )
     evidence = Evidence(
         inspection_id=inspection_id,
         file_path=relative_path,
         file_type=content_type,
         evidence_category=evidence_category,
         caption=caption,
-        raw_label=label_result.raw_label,
-        normalized_label=label_result.normalized_label,
-        evidence_slot=label_result.evidence_slot,
-        component_code=label_result.component_code,
-        axle_number=label_result.axle_number,
-        side=label_result.side,
-        is_reference=label_result.is_reference,
-        label_confidence=label_result.label_confidence,
-        metadata_json=label_result.metadata_json,
+        raw_label=label_data["raw_label"],
+        normalized_label=label_data["normalized_label"],
+        evidence_slot=label_data["evidence_slot"],
+        component_code=label_data["component_code"],
+        axle_number=label_data["axle_number"],
+        side=label_data["side"],
+        is_reference=label_data["is_reference"],
+        label_confidence=label_data["label_confidence"],
+        metadata_json=label_data["metadata_json"],
         ocr_processed=False,
     )
 
@@ -150,23 +191,33 @@ def update_evidence(
         side = data.get("side", evidence.side)
         is_reference = data.get("is_reference", evidence.is_reference)
 
-        label_result = resolve_evidence_label(
-            raw_label=raw_label,
-            component_code=component_code,
-            axle_number=axle_number,
-            side=side,
-            is_reference=is_reference,
-        )
-
-        evidence.raw_label = label_result.raw_label
-        evidence.normalized_label = label_result.normalized_label
-        evidence.evidence_slot = label_result.evidence_slot
-        evidence.component_code = label_result.component_code
-        evidence.axle_number = label_result.axle_number
-        evidence.side = label_result.side
-        evidence.is_reference = label_result.is_reference
-        evidence.label_confidence = label_result.label_confidence
-        evidence.metadata_json = label_result.metadata_json
+        if is_image_file_type(evidence.file_type):
+            label_result = resolve_evidence_label(
+                raw_label=raw_label,
+                component_code=component_code,
+                axle_number=axle_number,
+                side=side,
+                is_reference=is_reference,
+            )
+            evidence.raw_label = label_result.raw_label
+            evidence.normalized_label = label_result.normalized_label
+            evidence.evidence_slot = label_result.evidence_slot
+            evidence.component_code = label_result.component_code
+            evidence.axle_number = label_result.axle_number
+            evidence.side = label_result.side
+            evidence.is_reference = label_result.is_reference
+            evidence.label_confidence = label_result.label_confidence
+            evidence.metadata_json = label_result.metadata_json
+        else:
+            evidence.raw_label = raw_label
+            evidence.normalized_label = None
+            evidence.evidence_slot = None
+            evidence.component_code = component_code
+            evidence.axle_number = axle_number
+            evidence.side = side
+            evidence.is_reference = is_reference
+            evidence.label_confidence = None
+            evidence.metadata_json = None
 
     db.add(evidence)
     db.commit()
