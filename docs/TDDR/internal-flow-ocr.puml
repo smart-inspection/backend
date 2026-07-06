@@ -1,0 +1,16 @@
+@startuml
+start
+:Recibir evidence_id;
+:Buscar evidencia en BD;
+if (¿Existe?) then (sí)
+  :Resolver ruta física;
+  :Preprocesar imagen;
+  :Ejecutar PaddleOCR;
+  :Extraer texto y confianza;
+  :Actualizar evidence.ocr_*;
+  :Guardar en BD;
+else (no)
+  :Responder error;
+endif
+stop
+@enduml

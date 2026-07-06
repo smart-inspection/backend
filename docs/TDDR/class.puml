@@ -1,0 +1,143 @@
+@startuml
+hide circle
+skinparam classAttributeIconSize 0
+
+class User {
+  +id: int
+  +fullname: string
+  +email: string
+  +password_hash: string
+  +role: string
+  +is_active: bool
+}
+
+class InspectionRequest {
+  +id: int
+  +company_name: string
+  +contact_name: string
+  +contact_email: string
+  +contact_phone: string
+  +requested_date: date
+  +location: string
+  +service_type: string
+  +equipment_type: string
+  +notes: text
+  +status: string
+  +inspection_id: int?
+}
+
+class Inspection {
+  +id: int
+  +code: string
+  +client_name: string
+  +equipment_type: string
+  +inspection_type: string
+  +inspection_date: date
+  +location: string
+  +requested_by: string
+  +responsible_inspector_id: int?
+  +status: string
+}
+
+class InspectionField {
+  +id: int
+  +inspection_id: int
+  +field_key: string
+  +field_label: string
+  +field_group: string
+  +expected_type: string
+  +manual_value: string?
+  +ocr_value: string?
+  +final_value: string?
+  +validation_status: string
+  +validation_message: string?
+  +confidence: decimal?
+}
+
+class Evidence {
+  +id: int
+  +inspection_id: int
+  +filepath: text
+  +filetype: string
+  +evidence_category: string
+  +caption: text?
+  +raw_label: string?
+  +normalized_label: string?
+  +evidence_slot: string?
+  +component_code: string?
+  +axle_number: int?
+  +side: string?
+  +is_reference: bool
+  +label_confidence: decimal?
+  +metadata_json: json?
+  +ocr_extracted_text: text?
+  +ocr_confidence: decimal?
+  +ocr_processed: bool
+}
+
+class Transcription {
+  +id: int
+  +inspection_id: int
+  +evidence_id: int?
+  +source_file_path: string
+  +language: string?
+  +model_name: string
+  +raw_text: text?
+  +final_text: text?
+  +confidence: decimal?
+  +processed: bool
+  +edited_manually: bool
+}
+
+class ReportDraft {
+  +id: int
+  +inspection_id: int
+  +title: string
+  +template_version: string
+  +status: string
+  +generated_text: text
+  +edited_text: text?
+  +source_snapshot: json?
+  +generation_time_ms: int?
+  +status_updated_at: datetime?
+  +status_updated_by: int?
+  +last_action: string?
+}
+
+class ReportStatusLog {
+  +id: int
+  +report_draft_id: int
+  +inspection_id: int?
+  +from_status: string?
+  +to_status: string?
+  +action: string
+  +actor_user_id: int?
+  +actor_name: string?
+  +notes: text?
+  +metadata_json: json?
+  +created_at: datetime
+}
+
+class InspectionProductivity {
+  +id: int
+  +inspection_id: int
+  +inspector_name: string?
+  +scheduled_date: date?
+  +report_started_at: datetime?
+  +report_finished_at: datetime?
+  +duration_minutes: float?
+  +operational_status: string
+  +met_goal: bool?
+}
+
+User "1" -- "0..*" Inspection : responsible_inspector
+InspectionRequest "0..*" --> "0..1" Inspection : converts_to
+Inspection "1" -- "0..*" InspectionField
+Inspection "1" -- "0..*" Evidence
+Inspection "1" -- "0..*" Transcription
+Inspection "1" -- "0..*" ReportDraft
+Inspection "1" -- "0..1" InspectionProductivity
+Evidence "0..1" -- "0..*" Transcription
+ReportDraft "1" -- "0..*" ReportStatusLog
+User "0..1" -- "0..*" ReportStatusLog : actor
+@enduml

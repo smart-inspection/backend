@@ -1,0 +1,233 @@
+@startuml
+title Arquitectura completa - Sistema web inteligente de inspecciones
+
+skinparam backgroundColor white
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam defaultTextAlignment center
+skinparam wrapWidth 220
+skinparam maxMessageSize 180
+
+actor "Inspector / Admin / Supervisor" as user
+
+cloud "Internet" as internet
+
+node "Cliente" as client_device {
+  component "Navegador web\nChrome / Edge / Firefox" as browser
+}
+
+node "DNS / Dominios" as dns {
+  component "www.smartinspection.dev\nhttps://<<www.smartinspection.dev>>" as www.smartinspection.dev
+  component "api.smartinspection.dev\nhttps://<<api.smartinspection.dev>>" as api.smartinspection.dev
+  component "llm_domain (opcional)\nhttp://<<llm_domain>>" as llm_domain
+}
+
+node "Servidor VPS / Host principal" as vps {
+
+  node "Reverse proxy" as proxy {
+    component "Nginx\n:80 / :443" as nginx
+  }
+
+  node "Frontend runtime" as frontend_host {
+    component "Frontend SPA\nReact + Vite\nReact Router + React Query" as frontend_app
+    artifact "Archivos estáticos\nHTML / JS / CSS / assets" as frontend_static
+  }
+
+  node "Backend runtime" as backend_host {
+    component "FastAPI API\nUvicorn / ASGI\n:<<8000>>" as fastapi
+
+    package "Capa API" {
+      component "Routes\nhealth\ninspections\ninspection_fields\nevidences\nocr\ntranscription\nreport_draft\nllm_report\nreport_export\nreport_status\ninspection_requests\nproductivity\nusers" as routes
+    }
+
+    package "Capa de servicios" {
+      component "inspection_service" as inspection_service
+      component "evidence_service" as evidence_service
+      component "ocr_service" as ocr_service
+      component "transcription_service" as transcription_service
+      component "report_draft_service" as report_draft_service
+      component "llm_report_service" as llm_report_service
+      component "report_status_service" as report_status_service
+      component "productivity_service" as productivity_service
+      component "inspection_request_service" as inspection_request_service
+      component "storage_service" as storage_service
+      component "validation_service" as validation_service
+      component "pdf_service / export_service" as export_service
+    }
+
+    package "Capa de dominio / reglas" {
+      component "Reglas de validación\nnumeric_rules\nplate_rules\nserial_rules\nvin_rules" as domain_rules
+      component "Enums / constants" as domain_constants
+    }
+
+    package "Capa de datos" {
+      component "SQLAlchemy ORM models" as orm_models
+      component "Pydantic schemas" as schemas
+      component "DB session / dependencies" as db_session
+    }
+
+    package "Integraciones IA" {
+      component "OCR adapter\nPaddleOCR" as paddle_ocr
+      component "OCR adapter\nTesseract" as tesseract_ocr
+      component "ASR adapter\nWhisper" as whisper_asr
+      component "LLM pipeline\nLangChain" as langchain_pipeline
+      component "LLM adapter\nOllama / LLaMA 3\n:<<1200>>" as ollama_adapter
+      component "Preprocessing\nimagen / OCR" as preprocessing
+    }
+
+    package "Almacenamiento local" {
+      folder "uploads/\nimages\naudios\ndocuments\nexports" as uploads
+    }
+
+    package "Observabilidad / utilitarios" {
+      component "logging" as logging
+      component "security / auth" as security
+      component "health checks" as healthcheck
+    }
+  }
+
+  database "PostgreSQL\n:<<5432>>" as postgres_db
+
+  node "Migraciones" as migrations {
+    artifact "Alembic" as alembic
+  }
+}
+
+node "Servidor LLM independiente (opcional)" as llm_vps {
+  component "Ollama server\nLLaMA 3\n:<<1200>>" as remote_ollama
+}
+
+' ==== Flujo usuario ====
+user --> browser
+browser --> www.smartinspection.dev
+browser --> api.smartinspection.dev
+
+www.smartinspection.dev --> internet
+api.smartinspection.dev --> internet
+llm_domain --> internet
+
+internet --> nginx
+
+' ==== Frontend ====
+nginx --> frontend_app : /
+frontend_app --> frontend_static
+
+' ==== API ====
+nginx --> fastapi : /api/*
+nginx --> fastapi : /docs
+nginx --> fastapi : /health
+
+fastapi --> routes
+routes --> schemas
+routes --> security
+routes --> db_session
+
+' ==== Servicios ====
+routes --> inspection_service
+routes --> evidence_service
+routes --> ocr_service
+routes --> transcription_service
+routes --> report_draft_service
+routes --> llm_report_service
+routes --> report_status_service
+routes --> productivity_service
+routes --> inspection_request_service
+routes --> export_service
+
+inspection_service --> orm_models
+evidence_service --> orm_models
+ocr_service --> orm_models
+transcription_service --> orm_models
+report_draft_service --> orm_models
+llm_report_service --> orm_models
+report_status_service --> orm_models
+productivity_service --> orm_models
+inspection_request_service --> orm_models
+
+inspection_service --> validation_service
+validation_service --> domain_rules
+validation_service --> domain_constants
+
+evidence_service --> storage_service
+storage_service --> uploads
+
+ocr_service --> preprocessing
+ocr_service --> paddle_ocr
+ocr_service --> tesseract_ocr
+ocr_service --> storage_service
+
+transcription_service --> whisper_asr
+transcription_service --> storage_service
+
+report_draft_service --> langchain_pipeline
+llm_report_service --> langchain_pipeline
+langchain_pipeline --> ollama_adapter
+
+export_service --> storage_service
+report_status_service --> orm_models
+productivity_service --> orm_models
+
+' ==== Base de datos ====
+db_session --> postgres_db
+orm_models --> postgres_db
+alembic --> postgres_db
+
+' ==== Modos de despliegue LLM ====
+ollama_adapter --> remote_ollama : despliegue recomendado
+ollama_adapter --> postgres_db : no connection
+ollama_adapter ..> uploads : usa contexto documental/evidencias
+
+' ==== Relaciones funcionales ====
+inspection_service --> evidence_service
+inspection_service --> transcription_service
+inspection_service --> report_draft_service
+report_draft_service --> ocr_service
+report_draft_service --> transcription_service
+llm_report_service --> report_status_service
+llm_report_service --> storage_service
+productivity_service --> inspection_service
+
+' ==== Notas ====
+note right of frontend_app
+Frontend web del sistema:
+- dashboard
+- inspecciones
+- evidencias
+- OCR
+- transcripciones
+- informes
+- productividad
+end note
+
+note right of fastapi
+Backend principal confirmado:
+- FastAPI
+- SQLAlchemy
+- PostgreSQL
+- Pydantic
+- Uvicorn
+- rutas, servicios, modelos, schemas e integraciones
+end note
+
+note right of postgres_db
+Tablas principales:
+- inspections
+- inspection_fields
+- evidences
+- transcriptions
+- report_drafts
+- report_status_logs
+- inspection_requests
+- inspection_productivity
+- users
+end note
+
+note bottom of remote_ollama
+Opción recomendada para producción:
+separar Ollama en otra VPS
+para no compartir CPU/RAM
+con la API principal.
+end note
+
+@enduml

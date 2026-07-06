@@ -1,0 +1,12 @@
+@startuml
+start
+:Recibir inspection_id;
+:Consultar inspección;
+:Consultar campos, evidencias y transcripciones;
+:Construir source_snapshot;
+:Formatear contexto de entrada;
+:Invocar Ollama + LLaMA 3;
+:Renderizar texto final del borrador;
+:Persistir report_draft;
+stop
+@enduml

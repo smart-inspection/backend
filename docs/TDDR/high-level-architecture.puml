@@ -1,0 +1,61 @@
+@startuml
+title Smart Inspection - Arquitectura de alto nivel
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+actor "Cliente externo" as cliente
+actor "Inspector" as inspector
+actor "Administrador" as admin
+actor "Visualizador" as viewer
+
+rectangle "Frontend SPA\nReact + React Router + React Query" as fe {
+  component "LoginPage" as login
+  component "PublicInspectionRequestPage" as req_page
+  component "DashboardPage" as dash_page
+  component "InspectionsPage / DetailPage" as insp_page
+  component "ReportsPage / AdminUsersPage" as report_page
+}
+
+rectangle "Backend API\nFastAPI /api/v1" as be {
+  component "auth\n/users" as auth_api
+  component "inspection-requests\n/inspections\n/inspection-fields" as insp_api
+  component "evidences\n/ocr\n/transcription" as media_api
+  component "report-drafts\n/llm-report\n/reports\n/report-export" as report_api
+  component "productivity\n/inspection-enrichment" as prod_api
+}
+
+database "PostgreSQL" as db
+folder "uploads/" as fs
+
+cloud "Motores IA locales" as ai {
+  component "Tesseract OCR" as tess
+  component "PaddleOCR" as paddle
+  component "Whisper" as whisper
+  component "Ollama + LLaMA 3" as ollama
+  component "LangChain pipeline" as langchain
+}
+
+cliente --> req_page
+inspector --> fe
+admin --> fe
+viewer --> fe
+
+fe --> be : HTTPS / JSON
+be --> db : SQLAlchemy ORM
+be --> fs : lectura/escritura
+
+media_api --> tess
+media_api --> paddle
+media_api --> whisper
+report_api --> langchain
+langchain --> ollama
+
+insp_api --> db
+auth_api --> db
+media_api --> db
+report_api --> db
+prod_api --> db
+
+fs --> media_api : evidencias y audios
+@enduml

@@ -1,0 +1,21 @@
+@startsalt
+{
+  {+
+    <b>Solicitar inspección</b>
+    "Formulario público para empresas clientes"
+  }
+  {/}
+  {
+    Empresa cliente:      | "Global Supplier SP S.A.C.        "
+    Contacto:             | "Nombre del solicitante           "
+    Correo:               | "correo@cliente.com               "
+    Teléfono:             | "999999999                        "
+    Fecha solicitada:     | "2026-06-30                       "
+    Ubicación:            | "Patio / Planta / Mina            "
+    Tipo de servicio:     | "Inspección técnica               "
+    Tipo de equipo:       | "Semirremolque                    "
+    Notas:                | "Observaciones de la solicitud..."
+    [ Enviar solicitud ]
+  }
+}
+@endsalt

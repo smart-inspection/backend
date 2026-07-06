@@ -22,10 +22,13 @@ class ProductivityCreate(BaseModel):
     inspector_name: str | None = Field(
         default=None,
         max_length=150,
-        description="Campo opcional solo para compatibilidad. El servicio prioriza el usuario responsable relacionado."
+        description="Campo opcional solo para compatibilidad. El servicio prioriza el usuario responsable relacionado.",
     )
     scheduled_date: date | None = None
+    report_started_at: datetime | None = None
+    report_finished_at: datetime | None = None
     operational_status: str = Field(default="pending", max_length=50)
+    met_goal: bool | None = None
 
 
 class ProductivityStartRequest(BaseModel):

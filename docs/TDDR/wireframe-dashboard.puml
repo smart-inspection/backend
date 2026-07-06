@@ -1,0 +1,42 @@
+@startsalt
+{
+  {+
+    <b>Dashboard de productividad operativa</b>
+    "Filtros: fecha inicio, fecha fin, inspector, estado"
+  }
+  {/}
+  {
+    [Fecha inicio] [Fecha fin] [Inspector ▼] [Estado ▼] [Limpiar]
+  }
+  {/}
+  {
+    {#
+      | KPI | Valor |
+      | Tiempo promedio | 18.4 min |
+      | Inspecciones evaluadas | 42 |
+      | Cumplimiento meta | 81.0% |
+      | Fuera de meta | 8 |
+    }
+  }
+  {/}
+  {
+    {T
+      + Productividad por inspector |
+      Inspector | Asignadas | Completadas | Promedio | Cumplimiento
+      Juan Pérez | 12 | 10 | 17.2 | 90%
+      Ana Torres | 15 | 13 | 19.4 | 84%
+    }
+  }
+  {/}
+  {
+    {T
+      + Estado de inspecciones |
+      Estado | Conteo
+      Pendiente | 6
+      En proceso | 11
+      Bloqueado | 2
+      Completado | 23
+    }
+  }
+}
+@endsalt

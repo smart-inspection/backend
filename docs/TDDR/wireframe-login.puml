@@ -1,0 +1,16 @@
+@startsalt
+{
+  {+
+    <b>Smart Inspect</b>
+    "Sistema web inteligente de inspecciones"
+  }
+  {/}
+  {^
+    Correo electrónico: | "correo@empresa.com            "
+    Contraseña:        | "***************               "
+    [ Ingresar ]
+    .
+    "Acceso por JWT y roles: admin / inspector / viewer"
+  }
+}
+@endsalt

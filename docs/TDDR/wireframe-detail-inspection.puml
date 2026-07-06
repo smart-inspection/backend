@@ -1,0 +1,23 @@
+@startsalt
+{
+  {+
+    <b>Detalle de inspección</b>
+    "Código: INS-001 | Cliente: Global Supplier | Estado: draft"
+  }
+  {/}
+  {
+    [Resumen] [Campos] [Evidencias] [OCR] [Transcripciones] [Informes]
+  }
+  {/}
+  {
+    {#
+      | Bloque | Contenido |
+      | Ficha general | código, cliente, tipo, fecha, ubicación, inspector |
+      | Campos estructurados | valor manual / OCR / final / validación |
+      | Evidencias | preview, etiqueta, categoría, OCR |
+      | Transcripciones | texto bruto, texto final, edición manual |
+      | Informes | borradores, estado, historial, exportación |
+    }
+  }
+}
+@endsalt

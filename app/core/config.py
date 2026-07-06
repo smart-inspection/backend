@@ -16,9 +16,12 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.2
     llm_timeout: int = 120
 
-    secret_key: str = "cambiar"
+    secret_key: str = "c28b524c-400b-4ca0-aff9-f6d0ebd1cb92"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 8
+
+    paddle_max_image_width: int = 4000
+    paddle_max_image_height: int = 4000
 
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",
