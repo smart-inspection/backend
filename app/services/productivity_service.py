@@ -6,6 +6,15 @@ from sqlalchemy.orm import Session, selectinload
 from app.db.models import Inspection, InspectionProductivity
 from app.schemas.productivity import ProductivityCreate, ProductivityUpdate
 
+def normalize_utc_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+
+    return value.astimezone(timezone.utc)
+
 GOAL_MINUTES = 20
 
 VALID_OPERATIONAL_STATUSES = {
@@ -87,17 +96,36 @@ def _sync_productivity_from_inspection(
     productivity.scheduled_date = productivity.scheduled_date or _resolve_scheduled_date(inspection)
 
 
-def _recalculate_productivity(productivity: InspectionProductivity) -> None:
-    if productivity.report_started_at and productivity.report_finished_at:
+def _recalculate_productivity(
+    productivity: InspectionProductivity,
+) -> float | None:
+    report_started_at = normalize_utc_datetime(
+        productivity.report_started_at,
+    )
+    report_finished_at = normalize_utc_datetime(
+        productivity.report_finished_at,
+    )
+
+    productivity.report_started_at = report_started_at
+    productivity.report_finished_at = report_finished_at
+
+    if report_started_at and report_finished_at:
         elapsed_seconds = (
-            productivity.report_finished_at - productivity.report_started_at
+            report_finished_at - report_started_at
         ).total_seconds()
-        productivity.duration_minutes = round(max(elapsed_seconds, 0) / 60, 2)
+
+        productivity.duration_minutes = round(
+            max(elapsed_seconds, 0) / 60,
+            2,
+        )
         productivity.met_goal = productivity.duration_minutes <= GOAL_MINUTES
-        return
+
+        return productivity.duration_minutes
 
     productivity.duration_minutes = None
     productivity.met_goal = None
+
+    return None
 
 
 def get_productivity_by_inspection(
@@ -237,21 +265,29 @@ def finish_productivity(
     operational_status: str = "completed",
 ) -> InspectionProductivity:
     inspection = _get_inspection(db, inspection_id)
+
     if not inspection:
         raise ValueError("Inspection not found")
 
     productivity = _ensure_productivity_record(db, inspection)
-    finished_timestamp = finished_at or datetime.now(timezone.utc)
+    finished_timestamp = normalize_utc_datetime(
+        finished_at or datetime.now(timezone.utc),
+    )
 
     _sync_productivity_from_inspection(productivity, inspection)
 
-    if productivity.report_started_at is None:
-        productivity.report_started_at = finished_timestamp
+    report_started_at = normalize_utc_datetime(
+        productivity.report_started_at,
+    )
 
+    if report_started_at is None:
+        report_started_at = finished_timestamp
+
+    productivity.report_started_at = report_started_at
     productivity.report_finished_at = finished_timestamp
 
     if productivity.report_finished_at < productivity.report_started_at:
-        productivity.report_started_at = productivity.report_finished_at
+        productivity.report_finished_at = productivity.report_started_at
 
     productivity.operational_status = _normalize_operational_status(
         operational_status,
@@ -263,6 +299,7 @@ def finish_productivity(
     db.add(productivity)
     db.commit()
     db.refresh(productivity)
+
     return productivity
 
 
@@ -500,12 +537,22 @@ def sync_productivity_from_inspection_status(
     if normalized_status == "finalized" and productivity.report_finished_at is None:
         productivity.report_finished_at = now
 
+    report_started_at = normalize_utc_datetime(
+        productivity.report_started_at,
+    )
+    report_finished_at = normalize_utc_datetime(
+        productivity.report_finished_at,
+    )
+
+    productivity.report_started_at = report_started_at
+    productivity.report_finished_at = report_finished_at
+
     if (
-        productivity.report_started_at is not None
-        and productivity.report_finished_at is not None
-        and productivity.report_finished_at < productivity.report_started_at
+            report_started_at is not None
+            and report_finished_at is not None
+            and report_finished_at < report_started_at
     ):
-        productivity.report_finished_at = productivity.report_started_at
+        productivity.report_finished_at = report_started_at
 
     _recalculate_productivity(productivity)
 
