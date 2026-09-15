@@ -1,0 +1,167 @@
+@startuml
+hide circle
+skinparam linetype ortho
+
+entity "users" as users {
+  * id : int <<PK>>
+  --
+  fullname : varchar
+  email : varchar <<UQ>>
+  password_hash : varchar
+  role : varchar
+  is_active : bool
+  created_at : timestamptz
+  updated_at : timestamptz
+}
+
+entity "inspection_requests" as ir {
+  * id : int <<PK>>
+  --
+  company_name : varchar
+  contact_name : varchar
+  contact_email : varchar
+  contact_phone : varchar
+  requested_date : date
+  location : varchar
+  service_type : varchar
+  equipment_type : varchar
+  notes : text
+  status : varchar
+  inspection_id : int <<FK>>
+  created_at : timestamptz
+  updated_at : timestamptz
+}
+
+entity "inspections" as inspections {
+  * id : int <<PK>>
+  --
+  code : varchar
+  client_name : varchar
+  equipment_type : varchar
+  inspection_type : varchar
+  inspection_date : date
+  location : varchar
+  requested_by : varchar
+  responsible_inspector_id : int <<FK>>
+  status : varchar
+  created_at : timestamptz
+  updated_at : timestamptz
+}
+
+entity "inspection_fields" as fields {
+  * id : int <<PK>>
+  --
+  inspection_id : int <<FK>>
+  field_key : varchar
+  field_label : varchar
+  field_group : varchar
+  expected_type : varchar
+  manual_value : text
+  ocr_value : text
+  final_value : text
+  validation_status : varchar
+  validation_message : text
+  confidence : numeric
+  updated_at : timestamptz
+}
+
+entity "evidences" as evidences {
+  * id : int <<PK>>
+  --
+  inspection_id : int <<FK>>
+  filepath : text
+  filetype : varchar
+  evidence_category : varchar
+  caption : text
+  raw_label : varchar
+  normalized_label : varchar
+  evidence_slot : varchar
+  component_code : varchar
+  axle_number : int
+  side : varchar
+  is_reference : bool
+  label_confidence : numeric
+  metadata_json : json
+  ocr_extracted_text : text
+  ocr_confidence : numeric
+  ocr_processed : bool
+  ocr_last_processed_at : timestamptz
+  uploaded_at : timestamptz
+}
+
+entity "transcriptions" as transcriptions {
+  * id : int <<PK>>
+  --
+  inspection_id : int <<FK>>
+  evidence_id : int <<FK>>
+  source_file_path : text
+  language : varchar
+  model_name : varchar
+  raw_text : text
+  final_text : text
+  confidence : numeric
+  processed : bool
+  edited_manually : bool
+  created_at : timestamptz
+  updated_at : timestamptz
+}
+
+entity "report_drafts" as drafts {
+  * id : int <<PK>>
+  --
+  inspection_id : int <<FK>>
+  title : varchar
+  template_version : varchar
+  status : varchar
+  generated_text : text
+  edited_text : text
+  source_snapshot : json
+  generation_time_ms : int
+  status_updated_at : timestamptz
+  status_updated_by : int
+  last_action : varchar
+  created_at : timestamptz
+  updated_at : timestamptz
+}
+
+entity "report_status_logs" as logs {
+  * id : int <<PK>>
+  --
+  report_draft_id : int <<FK>>
+  inspection_id : int <<FK>>
+  from_status : varchar
+  to_status : varchar
+  action : varchar
+  actor_user_id : int <<FK>>
+  actor_name : varchar
+  notes : text
+  metadata_json : json
+  created_at : timestamptz
+}
+
+entity "inspection_productivity" as prod {
+  * id : int <<PK>>
+  --
+  inspection_id : int <<FK,UQ>>
+  inspector_name : varchar
+  scheduled_date : date
+  report_started_at : timestamptz
+  report_finished_at : timestamptz
+  duration_minutes : float
+  operational_status : varchar
+  met_goal : bool
+  created_at : timestamptz
+  updated_at : timestamptz
+}
+
+users ||--o{ inspections : responsible_inspector_id
+inspections ||--o{ fields : inspection_id
+inspections ||--o{ evidences : inspection_id
+inspections ||--o{ transcriptions : inspection_id
+inspections ||--o{ drafts : inspection_id
+inspections ||--|| prod : inspection_id
+inspections ||--o{ ir : inspection_id
+evidences ||--o{ transcriptions : evidence_id
+drafts ||--o{ logs : report_draft_id
+users ||--o{ logs : actor_user_id
+@enduml

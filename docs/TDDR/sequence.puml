@@ -1,0 +1,92 @@
+@startuml
+actor Inspector
+participant "Frontend React" as FE
+participant "FastAPI" as API
+participant "InspectionService" as INS
+participant "EvidenceService/OCRService" as OCR
+participant "TranscriptionService" as ASR
+participant "LLMReportService" as LLM
+participant "ReportStatusService" as STATUS
+participant "ProductivityService" as PROD
+database "PostgreSQL" as DB
+collections "uploads/" as FS
+participant "Whisper" as W
+participant "PaddleOCR / Tesseract" as O
+participant "Ollama + LLaMA 3" as OL
+
+Inspector -> FE : crear inspección
+FE -> API : POST /inspections
+API -> INS : create_inspection()
+INS -> DB : INSERT inspection
+DB --> INS : inspection_id
+INS --> API : inspección creada
+API --> FE : 201 Created
+
+Inspector -> FE : iniciar productividad
+FE -> API : PATCH /productivity/inspection/{id}/start
+API -> PROD : start_productivity()
+PROD -> DB : UPSERT inspection_productivity
+DB --> PROD
+PROD --> API
+API --> FE
+
+Inspector -> FE : subir evidencia
+FE -> API : POST /inspections/{id}/evidences
+API -> OCR : save_evidence()
+OCR -> FS : guardar archivo
+OCR -> DB : INSERT evidence
+DB --> OCR
+OCR --> API
+API --> FE
+
+Inspector -> FE : ejecutar OCR
+FE -> API : POST /ocr/evidences/{evidence_id}/extract
+API -> OCR : extract_text_from_evidence()
+OCR -> FS : leer imagen
+OCR -> O : procesar OCR
+O --> OCR : texto + confianza
+OCR -> DB : UPDATE evidence.ocr_*
+DB --> OCR
+OCR --> API
+API --> FE
+
+Inspector -> FE : subir audio
+FE -> API : POST /transcription
+API -> ASR : create_and_process_transcription()
+ASR -> FS : leer audio
+ASR -> W : transcribir
+W --> ASR : texto transcrito
+ASR -> DB : INSERT transcription
+DB --> ASR
+ASR --> API
+API --> FE
+
+Inspector -> FE : generar borrador LLM
+FE -> API : POST /llm-report/generate/{inspection_id}
+API -> LLM : generate_llm_report_draft()
+LLM -> DB : consultar inspección, campos,\nevidencias, OCR, transcripciones
+DB --> LLM : contexto
+LLM -> OL : generar borrador
+OL --> LLM : texto
+LLM -> DB : INSERT report_draft
+DB --> LLM
+LLM --> API
+API --> FE
+
+Inspector -> FE : cambiar estado a inreview/finalized
+FE -> API : PATCH /reports/{draft_id}/status
+API -> STATUS : change_report_status()
+STATUS -> DB : UPDATE report_draft
+STATUS -> DB : INSERT report_status_log
+DB --> STATUS
+STATUS --> API
+API --> FE
+
+Inspector -> FE : finalizar productividad
+FE -> API : PATCH /productivity/inspection/{id}/finish
+API -> PROD : finish_productivity()
+PROD -> DB : calcular duration_minutes,\nmet_goal, status
+DB --> PROD
+PROD --> API
+API --> FE
+@enduml

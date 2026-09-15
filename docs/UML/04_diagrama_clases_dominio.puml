@@ -1,0 +1,114 @@
+@startuml
+title Diagrama de clases del dominio — Smart Inspect
+hide methods
+skinparam classAttributeIconSize 0
+
+class User {
+  +id: integer
+  +full_name: string
+  +email: string
+  +password_hash: string
+  +role: string
+  +is_active: boolean
+  +created_at: datetime
+}
+
+class InspectionRequest {
+  +id: integer
+  +company_name: string
+  +contact_name: string
+  +contact_email: string
+  +contact_phone: string
+  +requested_date: date
+  +location: string
+  +service_type: string
+  +equipment_type: string
+  +notes: text
+  +status: string
+  +created_at: datetime
+}
+
+class Inspection {
+  +id: integer
+  +code: string
+  +client_name: string
+  +equipment_type: string
+  +inspection_type: string
+  +inspection_date: date
+  +location: string
+  +requested_by: string
+  +status: string
+  +created_at: datetime
+  +updated_at: datetime
+}
+
+class InspectionField {
+  +id: integer
+  +field_key: string
+  +label: string
+  +value_manual: string
+  +value_ocr: string
+  +value_final: string
+  +validation_status: string
+}
+
+class Evidence {
+  +id: integer
+  +file_name: string
+  +file_path: string
+  +file_type: string
+  +uploaded_at: datetime
+}
+
+class OcrResult {
+  +id: integer
+  +extracted_text: text
+  +confidence: decimal
+  +status: string
+  +processed_at: datetime
+}
+
+class Transcription {
+  +id: integer
+  +raw_text: text
+  +final_text: text
+  +audio_path: string
+  +created_at: datetime
+}
+
+class ReportDraft {
+  +id: integer
+  +content: text
+  +status: string
+  +generated_at: datetime
+  +updated_at: datetime
+}
+
+class ReportStatusLog {
+  +id: integer
+  +from_status: string
+  +to_status: string
+  +action: string
+  +notes: string
+  +created_at: datetime
+}
+
+class ProductivityRecord {
+  +id: integer
+  +report_started_at: datetime
+  +report_finished_at: datetime
+  +duration_minutes: decimal
+  +met_goal: boolean
+}
+
+User "1" -- "0..*" Inspection : responsable
+User "1" -- "0..*" ReportStatusLog : actor
+InspectionRequest "0..1" --> "0..1" Inspection : convertida en
+Inspection "1" *-- "0..*" InspectionField
+Inspection "1" *-- "0..*" Evidence
+Evidence "1" *-- "0..*" OcrResult
+Inspection "1" *-- "0..*" Transcription
+Inspection "1" *-- "0..*" ReportDraft
+ReportDraft "1" *-- "0..*" ReportStatusLog
+Inspection "1" *-- "0..1" ProductivityRecord
+@enduml

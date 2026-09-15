@@ -534,22 +534,64 @@ def generate_report_draft(
         },
     )
 
+    db.add(draft)
     db.commit()
     db.refresh(draft)
+
+    return normalize_report_draft_generated_text(draft)
+
+def _get_attr_value(obj, candidates: list[str], default=None):
+    for name in candidates:
+        if hasattr(obj, name):
+            value = getattr(obj, name)
+            if value is not None:
+                return value
+    return default
+
+
+def _set_attr_value(obj, candidates: list[str], value) -> None:
+    for name in candidates:
+        if hasattr(obj, name):
+            setattr(obj, name, value)
+
+
+def normalize_report_draft_generated_text(draft: ReportDraft | None) -> ReportDraft | None:
+    if draft is None:
+        return None
+
+    generated_value = _get_attr_value(draft, ["generated_text", "generatedtext"])
+    edited_value = _get_attr_value(draft, ["edited_text", "editedtext"])
+
+    normalized_generated_text = ""
+    if isinstance(generated_value, str) and generated_value.strip():
+        normalized_generated_text = generated_value
+    elif isinstance(edited_value, str) and edited_value.strip():
+        normalized_generated_text = edited_value
+
+    _set_attr_value(draft, ["generated_text", "generatedtext"], normalized_generated_text)
+
     return draft
 
 
 def get_report_draft_by_id(db: Session, draft_id: int) -> ReportDraft | None:
-    return db.query(ReportDraft).filter(ReportDraft.id == draft_id).first()
+    draft = (
+        db.query(ReportDraft)
+        .filter(ReportDraft.id == draft_id)
+        .first()
+    )
+
+    return normalize_report_draft_generated_text(draft)
 
 
 def list_report_drafts_by_inspection(db: Session, inspection_id: int) -> list[ReportDraft]:
-    return (
+    drafts = (
         db.query(ReportDraft)
         .filter(ReportDraft.inspection_id == inspection_id)
-        .order_by(ReportDraft.id.desc())
+        .order_by(ReportDraft.created_at.desc())
         .all()
     )
+
+    return [normalize_report_draft_generated_text(draft) for draft in drafts]
 
 
 def update_report_draft(
@@ -598,4 +640,5 @@ def update_report_draft(
     db.add(draft)
     db.commit()
     db.refresh(draft)
-    return draft
+
+    return normalize_report_draft_generated_text(draft)

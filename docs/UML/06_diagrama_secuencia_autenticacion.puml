@@ -1,0 +1,28 @@
+@startuml
+title Diagrama de secuencia — Inicio de sesión
+
+actor Usuario
+boundary "Pantalla de inicio\nde sesión" as login_screen
+participant "Frontend\nReact" as frontend
+participant "API\nFastAPI" as api
+database "PostgreSQL" as db
+
+Usuario -> login_screen: Ingresa correo y contraseña
+login_screen -> frontend: Enviar formulario de acceso
+frontend -> api: POST /api/v1/auth/login
+api -> db: Buscar usuario por correo
+db --> api: Datos de usuario
+
+alt Credenciales válidas
+    api -> api: Verificar contraseña
+    api -> api: Generar token JWT
+    api --> frontend: Token y datos del usuario
+    frontend -> frontend: Guardar sesión
+    frontend --> login_screen: Confirmar autenticación
+    login_screen --> Usuario: Redirigir al dashboard
+else Credenciales inválidas
+    api --> frontend: Error de autenticación
+    frontend --> login_screen: Mostrar error de autenticación
+    login_screen --> Usuario: Mostrar mensaje de error
+end
+@enduml

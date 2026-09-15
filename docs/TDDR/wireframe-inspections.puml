@@ -1,0 +1,21 @@
+@startsalt
+{
+  {+
+    <b>Inspecciones</b>
+    [ + Nueva inspección ]
+  }
+  {/}
+  {
+    Buscar: "código / cliente / inspector               "
+  }
+  {/}
+  {
+    {T
+      + Tabla de inspecciones |
+      Código | Cliente | Equipo | Fecha | Inspector | Estado | Acción
+      INS-001 | Global Supplier | Semirremolque | 2026-06-20 | Juan Pérez | draft | [Ver]
+      INS-002 | Mina Norte | Tractor | 2026-06-21 | Ana Torres | inreview | [Ver]
+    }
+  }
+}
+@endsalt

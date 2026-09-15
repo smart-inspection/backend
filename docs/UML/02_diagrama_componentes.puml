@@ -1,0 +1,70 @@
+@startuml
+title Diagrama de componentes — Smart Inspect
+skinparam componentStyle rectangle
+
+package "Cliente web" {
+  [Navegador web] as navegador
+}
+
+package "Frontend" {
+  [React + TypeScript] as react
+  [React Router] as router
+  [React Query] as react_query
+  [Tailwind CSS] as tailwind
+}
+
+package "Backend" {
+  [FastAPI] as fastapi
+  [Autenticación JWT] as auth
+  [Módulo de inspecciones] as inspections
+  [Módulo de solicitudes] as requests
+  [Módulo de evidencias] as evidences
+  [Módulo OCR] as ocr
+  [Módulo de transcripción] as transcription
+  [Módulo de informes] as reports
+  [Módulo de productividad] as productivity
+  [Módulo de usuarios] as users
+}
+
+database "PostgreSQL" as postgres
+folder "Almacenamiento\nde archivos" as uploads
+
+package "Servicios de inteligencia artificial" {
+  [PaddleOCR] as paddle_ocr
+  [Tesseract] as tesseract
+  [Whisper] as whisper
+  [LangChain] as langchain
+  [Ollama + LLaMA 3] as ollama
+}
+
+navegador --> react
+react --> router
+react --> react_query
+react --> tailwind
+react --> fastapi : REST API / JSON
+
+fastapi --> auth
+fastapi --> inspections
+fastapi --> requests
+fastapi --> evidences
+fastapi --> ocr
+fastapi --> transcription
+fastapi --> reports
+fastapi --> productivity
+fastapi --> users
+
+auth --> postgres
+inspections --> postgres
+requests --> postgres
+evidences --> postgres
+reports --> postgres
+productivity --> postgres
+users --> postgres
+
+evidences --> uploads
+ocr --> paddle_ocr
+ocr --> tesseract
+transcription --> whisper
+reports --> langchain
+langchain --> ollama
+@enduml

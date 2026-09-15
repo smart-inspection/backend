@@ -1,0 +1,66 @@
+@startuml
+left to right direction
+skinparam packageStyle rectangle
+
+actor "Cliente externo" as cliente
+actor "Inspector" as inspector
+actor "Administrador" as admin
+actor "Visualizador" as viewer
+
+rectangle "Smart Inspection" {
+  usecase "Enviar solicitud\npública de inspección" as uc1
+  usecase "Autenticarse" as uc2
+  usecase "Gestionar usuarios" as uc3
+  usecase "Consultar solicitudes" as uc4
+  usecase "Convertir solicitud\na inspección" as uc5
+  usecase "Crear inspección" as uc6
+  usecase "Registrar campos\nestructurados" as uc7
+  usecase "Cargar evidencias" as uc8
+  usecase "Ejecutar OCR" as uc9
+  usecase "Validar OCR" as uc10
+  usecase "Subir audio y\ntranscribir" as uc11
+  usecase "Editar transcripción" as uc12
+  usecase "Generar borrador" as uc13
+  usecase "Generar borrador con LLM" as uc14
+  usecase "Editar borrador" as uc15
+  usecase "Cambiar estado\ndel informe" as uc16
+  usecase "Exportar PDF / DOCX" as uc17
+  usecase "Consultar dashboard\nde productividad" as uc18
+  usecase "Consultar historial\nde estados" as uc19
+}
+
+cliente --> uc1
+
+inspector --> uc2
+inspector --> uc6
+inspector --> uc7
+inspector --> uc8
+inspector --> uc9
+inspector --> uc10
+inspector --> uc11
+inspector --> uc12
+inspector --> uc13
+inspector --> uc14
+inspector --> uc15
+inspector --> uc16
+inspector --> uc17
+inspector --> uc18
+inspector --> uc19
+
+admin --> uc2
+admin --> uc3
+admin --> uc4
+admin --> uc5
+admin --> uc6
+admin --> uc18
+admin --> uc19
+
+viewer --> uc2
+viewer --> uc4
+viewer --> uc18
+viewer --> uc19
+
+uc14 .> uc13 : <<extend>>
+uc10 .> uc9 : <<include>>
+uc17 .> uc15 : <<include>>
+@enduml
