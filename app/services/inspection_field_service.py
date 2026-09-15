@@ -18,8 +18,12 @@ def create_inspection_field(
         **payload.model_dump()
     )
     db.add(field)
-    db.commit()
-    db.refresh(field)
+    try:
+        db.commit()
+        db.refresh(field)
+    except Exception:
+        db.rollback()
+        raise
     return field
 
 def list_inspection_fields(db: Session, inspection_id: int) -> list[InspectionField]:
@@ -55,6 +59,38 @@ def update_inspection_field(
     field.updated_at = datetime.now(timezone.utc)
 
     db.add(field)
-    db.commit()
-    db.refresh(field)
+    try:
+        db.commit()
+        db.refresh(field)
+    except Exception:
+        db.rollback()
+        raise
     return field
+
+
+def eliminar_inspection_field(
+    db: Session,
+    inspection_id: int,
+    field_id: int,
+) -> bool:
+    """
+    Elimina un campo técnico de una inspección.
+    Retorna True si fue eliminado, False si no existía.
+    """
+    field = (
+        db.query(InspectionField)
+        .filter(
+            InspectionField.id == field_id,
+            InspectionField.inspection_id == inspection_id,
+        )
+        .first()
+    )
+    if not field:
+        return False
+    try:
+        db.delete(field)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return True

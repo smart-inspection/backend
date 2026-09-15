@@ -1,10 +1,11 @@
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
 from app.db.models import Inspection, Evidence, Transcription
 from app.schemas.transcription import TranscriptionCreate, TranscriptionUpdate
+from app.services.storage_service import delete_physical_file
 
 
 def _resolve_audio_path(file_path: str) -> Path:
@@ -82,8 +83,12 @@ def create_and_process_transcription(db: Session, payload: TranscriptionCreate) 
     )
 
     db.add(transcription)
-    db.commit()
-    db.refresh(transcription)
+    try:
+        db.commit()
+        db.refresh(transcription)
+    except Exception:
+        db.rollback()
+        raise
     return transcription
 
 
@@ -111,9 +116,34 @@ def update_transcription_text(
 
     transcription.final_text = payload.final_text
     transcription.edited_manually = True
-    transcription.updated_at = datetime.utcnow()
+    transcription.updated_at = datetime.now(timezone.utc)
 
     db.add(transcription)
-    db.commit()
-    db.refresh(transcription)
+    try:
+        db.commit()
+        db.refresh(transcription)
+    except Exception:
+        db.rollback()
+        raise
     return transcription
+
+
+def eliminar_transcripcion(db: Session, transcription_id: int) -> bool:
+    """
+    Elimina la transcripción y su archivo de audio físico del disco.
+    Retorna True si fue eliminada, False si no existía.
+    """
+    transcription = get_transcription_by_id(db, transcription_id)
+    if not transcription:
+        return False
+
+    source_path = transcription.source_file_path
+    try:
+        db.delete(transcription)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    delete_physical_file(source_path)
+    return True

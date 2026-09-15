@@ -11,8 +11,12 @@ def create_inspection_request(
 ) -> InspectionRequest:
     inspection_request = InspectionRequest(**payload.model_dump())
     db.add(inspection_request)
-    db.commit()
-    db.refresh(inspection_request)
+    try:
+        db.commit()
+        db.refresh(inspection_request)
+    except Exception:
+        db.rollback()
+        raise
     return inspection_request
 
 
@@ -55,6 +59,27 @@ def convert_inspection_request(
     inspection_request.status = payload.status.strip().lower() if payload.status else "converted"
 
     db.add(inspection_request)
-    db.commit()
-    db.refresh(inspection_request)
+    try:
+        db.commit()
+        db.refresh(inspection_request)
+    except Exception:
+        db.rollback()
+        raise
     return inspection_request
+
+
+def eliminar_inspection_request(db: Session, request_id: int) -> bool:
+    """
+    Elimina una solicitud de inspección.
+    Retorna True si fue eliminada, False si no existía.
+    """
+    request = get_inspection_request_by_id(db, request_id)
+    if not request:
+        return False
+    try:
+        db.delete(request)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return True

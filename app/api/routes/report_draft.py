@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
@@ -8,6 +8,7 @@ from app.schemas.report_draft import (
     ReportDraftUpdate,
 )
 from app.services.report_draft_service import (
+    eliminar_report_draft,
     generate_report_draft,
     get_report_draft_by_id,
     list_report_drafts_by_inspection,
@@ -62,3 +63,17 @@ def update_report_draft_endpoint(
     if not draft:
         raise HTTPException(status_code=404, detail="Report draft not found")
     return draft
+
+
+@router.delete("/{draft_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_report_draft_endpoint(
+    draft_id: int,
+    db: Session = Depends(get_db),
+):
+    try:
+        eliminado = eliminar_report_draft(db, draft_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error al eliminar borrador: {exc}")
+    if not eliminado:
+        raise HTTPException(status_code=404, detail="Borrador no encontrado")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

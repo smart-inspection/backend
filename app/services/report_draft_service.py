@@ -642,3 +642,24 @@ def update_report_draft(
     db.refresh(draft)
 
     return normalize_report_draft_generated_text(draft)
+
+
+def eliminar_report_draft(db: Session, draft_id: int) -> bool:
+    """
+    Elimina un borrador de informe y sus status_logs asociados (cascada ORM).
+    Retorna True si fue eliminado, False si no existía.
+    """
+    draft = (
+        db.query(ReportDraft)
+        .filter(ReportDraft.id == draft_id)
+        .first()
+    )
+    if not draft:
+        return False
+    try:
+        db.delete(draft)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return True

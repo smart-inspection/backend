@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
@@ -6,6 +6,7 @@ from app.schemas.evidence import EvidenceOCRResponse, EvidenceResponse, Evidence
 from app.services.evidence_ocr_service import process_evidence_ocr
 from app.services.evidence_service import (
     create_evidence,
+    eliminar_evidence,
     get_inspection,
     list_evidences,
     serialize_evidence,
@@ -100,3 +101,17 @@ def update_evidence_endpoint(
     if not evidence:
         raise HTTPException(status_code=404, detail="Evidence not found")
     return serialize_evidence(evidence)
+
+
+@router.delete("/evidences/{evidence_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_evidence_endpoint(
+    evidence_id: int,
+    db: Session = Depends(get_db),
+):
+    try:
+        eliminado = eliminar_evidence(db, evidence_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error al eliminar evidencia: {exc}")
+    if not eliminado:
+        raise HTTPException(status_code=404, detail="Evidencia no encontrada")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

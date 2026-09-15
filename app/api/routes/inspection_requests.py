@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
@@ -8,8 +8,10 @@ from app.schemas.inspection_request import (
 )
 from app.services.inspection_request_service import (
     create_inspection_request,
+    eliminar_inspection_request,
     get_inspection_request_by_id,
-    list_inspection_requests, convert_inspection_request,
+    list_inspection_requests,
+    convert_inspection_request,
 )
 
 router = APIRouter(prefix="/inspection-requests", tags=["inspection-requests"])
@@ -58,3 +60,19 @@ def convert_inspection_request_endpoint(
         return convert_inspection_request(db, inspection_request_id, payload)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.delete("/{request_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_inspection_request_endpoint(
+    request_id: int,
+    db: Session = Depends(get_db),
+):
+    try:
+        eliminado = eliminar_inspection_request(db, request_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error al eliminar solicitud: {exc}")
+    if not eliminado:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

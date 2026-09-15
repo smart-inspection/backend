@@ -69,3 +69,30 @@ def save_evidence_upload(inspection_id: int, file: UploadFile) -> tuple[str, str
         shutil.copyfileobj(file.file, buffer)
 
     return str(relative_path).replace("\\", "/"), content_type
+
+
+def delete_physical_file(file_path: str) -> bool:
+    """
+    Elimina el archivo físico del disco.
+    Acepta rutas relativas o absolutas, con separador '/' o '\\'.
+    Retorna True si fue eliminado, False si no existía.
+    """
+    if not file_path:
+        return False
+
+    # Normalizar separadores y limpiar slash inicial
+    normalized = file_path.replace("\\", "/").lstrip("/")
+    candidate = Path(normalized)
+
+    # Si la ruta es relativa, resolverla desde el directorio de trabajo
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+
+    try:
+        candidate = candidate.resolve()
+        if candidate.exists() and candidate.is_file():
+            candidate.unlink()
+            return True
+        return False
+    except OSError:
+        return False

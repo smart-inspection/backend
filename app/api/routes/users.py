@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_db, require_role
@@ -6,6 +6,7 @@ from app.db.models.users import User
 from app.schemas.users import UserCreate, UserResponse, UserUpdate
 from app.services.user_service import (
     create_user,
+    eliminar_usuario,
     get_user_by_id,
     list_users,
     update_user,
@@ -63,3 +64,23 @@ def update_user_endpoint(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
     return user
+
+
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user_endpoint(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(admin_only),
+):
+    try:
+        eliminado = eliminar_usuario(db, user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al eliminar usuario: {exc}",
+        )
+    if not eliminado:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

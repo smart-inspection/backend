@@ -1,10 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
 from app.schemas.transcription import TranscriptionCreate, TranscriptionResponse, TranscriptionUpdate
-from app.services.transcription_service import create_and_process_transcription, list_transcriptions_by_inspection, \
-    get_transcription_by_id, update_transcription_text
+from app.services.transcription_service import (
+    create_and_process_transcription,
+    eliminar_transcripcion,
+    get_transcription_by_id,
+    list_transcriptions_by_inspection,
+    update_transcription_text,
+)
 
 router = APIRouter(prefix="/transcription", tags=["Transcription"])
 
@@ -47,3 +52,17 @@ def update_transcription_endpoint(
     if not transcription:
         raise HTTPException(status_code=404, detail="Transcription not found")
     return transcription
+
+
+@router.delete("/{transcription_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_transcription_endpoint(
+    transcription_id: int,
+    db: Session = Depends(get_db),
+):
+    try:
+        eliminado = eliminar_transcripcion(db, transcription_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error al eliminar transcripción: {exc}")
+    if not eliminado:
+        raise HTTPException(status_code=404, detail="Transcripción no encontrada")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -1,145 +1,107 @@
-# Smart Inspection Backend
+Sí. El problema principal es que tu bloque de **arquitectura no está cerrado correctamente**: abres un bloque ````text`, pero falta el ` ``` `antes de`---`. Además, en la última tabla tienes saltos de línea y backticks que rompen la sintaxis Markdown.
 
-Backend del sistema web inteligente para la generación automatizada de informes de inspección.
+Te dejo el `README.md` corregido y listo para copiar:
 
-Este proyecto implementa la API y la lógica principal para registrar inspecciones, capturar datos estructurados, adjuntar evidencias, ejecutar OCR, transcribir observaciones, generar borradores de informe, exportar documentos y dar seguimiento al estado del informe.
+````markdown
+# Smart Inspection — Backend API
 
----
-
-## Objetivo
-
-Construir la base backend de un sistema web capaz de apoyar el proceso de inspección técnica mediante:
-
-- registro estructurado de inspecciones
-- almacenamiento de campos críticos
-- carga de evidencias visuales
-- extracción de texto con OCR
-- transcripción de audio
-- generación automática de borradores de informe
-- exportación documental
-- trazabilidad y seguimiento de estados
+Backend del sistema web inteligente de inspecciones técnicas vehiculares e industriales. Desarrollado con FastAPI, SQLAlchemy y PostgreSQL, incorpora pipelines de inteligencia artificial local para extracción de texto (OCR con PaddleOCR y Tesseract), transcripción de voz (Whisper), asistencia en redacción de informes técnicos (LLaMA 3 vía Ollama y LangChain), importación de reportes DOCX históricos y medición automatizada de productividad operativa.
 
 ---
 
-## Alcance actual
+## Características Principales
 
-Actualmente el backend contempla módulos para:
-
-- healthcheck y configuración base
-- inspecciones
-- campos de inspección
-- evidencias
-- OCR por evidencia
-- transcripciones
-- borradores de informe
-- generación automática de informe
-- exportación
-- estados y trazabilidad
-
----
-
-## Stack tecnológico
-
-- Python 3.12
-- FastAPI
-- SQLAlchemy
-- PostgreSQL
-- Pydantic
-- Tesseract OCR vía `pytesseract`
-- Pillow para preprocesamiento básico de imágenes
-- Uvicorn como servidor ASGI
+- **Gestión de Inspecciones:** Registro integral de fichas técnicas, equipos, asignación de inspectores y control del ciclo de vida (`draft`, `in_review`, `observed`, `finalized`).
+- **Campos Estructurados y Reglas de Dominio:** Captura de datos técnicos con validadores de formato para patentes/placas, VIN, números de serie y valores numéricos.
+- **Evidencias Multimedia:** Subida clasificada de imágenes y audio a almacenamiento local bajo `/uploads`.
+- **Pipeline OCR Dual:** Preprocesamiento de imágenes con Pillow/OpenCV y extracción de texto mediante PaddleOCR y Tesseract, con cálculo de confianza y cruce automático contra campos técnicos.
+- **Transcripción de Voz (ASR):** Conversión de audios de campo a texto mediante modelos Whisper para registrar observaciones en tiempo real.
+- **Generación de Informes con IA:** Orquestación con LangChain y modelos LLaMA 3 sobre Ollama para consolidar campos, transcripciones y OCR en borradores estructurados.
+- **Importación Histórica DOCX:** Módulo de previsualización y procesamiento por lotes de informes antiguos en `.docx` para poblar la base de datos y generar borradores.
+- **Exportación Documental:** Descarga de reportes técnicos generados en formatos DOCX y PDF con logotipos y firmas de conformidad.
+- **Productividad Operativa y Dashboard:** Medición de tiempos de elaboración (`report_started_at` a `report_finished_at`), evaluación contra meta de 20 minutos y métricas por inspector y estado.
+- **Solicitudes de Clientes:** Módulo público para recepción de solicitudes de inspección y conversión directa a inspecciones operativas.
+- **Autenticación y Seguridad:** Control de acceso basado en roles (`admin`, `inspector`, `viewer`) mediante tokens JWT.
 
 ---
 
-## Estructura general
+## Arquitectura y Estructura del Proyecto
+
+El backend sigue un diseño modular por capas respetando principios DDD (Domain-Driven Design):
 
 ```text
-app/
-├── api/
-│   └── routes/
-│       ├── health.py
-│       ├── inspections.py
-│       ├── inspection_fields.py
-│       ├── evidences.py
-│       ├── ocr.py
-│       ├── transcription.py
-│       ├── report_draft.py
-│       ├── llm_report.py
-│       ├── report_export.py
-│       └── report_status.py
-├── core/
-│   └── config.py
-├── db/
-│   ├── base.py
-│   ├── session.py
-│   └── models/
-├── schemas/
-├── services/
-│   ├── evidence_service.py
-│   ├── evidence_ocr_service.py
-│   ├── storage_service.py
-│   └── report_template_service.py
-└── main.py
-
-uploads/
-└── inspections/
-```
-
----
-
-## Funcionalidades principales
-
-### 1. Inspecciones
-Permite registrar inspecciones con datos base como código, cliente, equipo, tipo de inspección, fecha, ubicación y responsable.
-
-### 2. Captura estructurada
-Permite asociar campos de inspección y valores críticos al registro, para alimentar validaciones y generación de informes.
-
-### 3. Evidencias
-Permite subir imágenes asociadas a una inspección usando `multipart/form-data`, almacenarlas físicamente y listarlas posteriormente.
-
-### 4. OCR
-Permite procesar una evidencia específica para extraer texto, guardar confianza estimada y registrar si ya fue procesada.
-
-### 5. Transcripción
-Permite asociar observaciones de audio transcritas al flujo de inspección.
-
-### 6. Informe automático
-Permite construir el contexto de informe a partir de:
-- datos estructurados
-- evidencias
-- resultados OCR
-- transcripciones
-- borrador generado o editado
-
-### 7. Exportación
-Permite generar salida documental del informe final.
-
-### 8. Estados y trazabilidad
-Permite gestionar el estado del informe y preparar trazabilidad de acciones relevantes.
+backend/
+├── alembic/                         # Migraciones de base de datos
+│   └── versions/                    # Scripts versionados de evolución de esquema
+├── app/
+│   ├── api/
+│   │   └── routes/                  # Endpoints REST (FastAPI Routers)
+│   │       ├── auth.py
+│   │       ├── evidences.py
+│   │       ├── health.py
+│   │       ├── imports.py
+│   │       ├── inspection_enrichment.py
+│   │       ├── inspection_fields.py
+│   │       ├── inspection_requests.py
+│   │       ├── inspections.py
+│   │       ├── llm_report.py
+│   │       ├── ocr.py
+│   │       ├── productivity.py
+│   │       ├── report_draft.py
+│   │       ├── report_export.py
+│   │       ├── report_status.py
+│   │       ├── transcription.py
+│   │       └── users.py
+│   ├── core/                        # Configuración (Pydantic Settings), seguridad y dependencias
+│   ├── db/
+│   │   ├── base.py                 # Base declarativa de SQLAlchemy
+│   │   ├── session.py              # Motor de conexión y SessionLocal
+│   │   └── models/                 # Entidades ORM (Inspection, Evidence, User, etc.)
+│   ├── domain/                      # Reglas de negocio (placas, VIN, series) y enums
+│   ├── integrations/                # Adaptadores de IA (Whisper, Ollama/LangChain, PaddleOCR)
+│   ├── schemas/                     # Modelos Pydantic de entrada, salida y validación
+│   ├── services/                    # Lógica de negocio y orquestación entre módulos
+│   ├── static/                      # Recursos visuales (firmas, membretes y logos)
+│   ├── tests/                       # Suite de pruebas unitarias e integración
+│   │   ├── integration/             # Pruebas de ciclo E2E y concurrencia
+│   │   └── unit/                    # Pruebas unitarias por módulo
+│   └── main.py                      # Punto de entrada de la aplicación FastAPI y CORS
+├── docs/                            # Documentación arquitectural en PlantUML (TDDR y UML)
+├── uploads/                         # Directorio de persistencia física de archivos subidos
+├── alembic.ini                      # Configuración del CLI de Alembic
+├── docker-compose.yml               # Orquestación de contenedores
+└── requirements.txt                 # Dependencias del proyecto
+````
 
 ---
 
-## Requisitos previos
+## Requisitos del Sistema
 
-Antes de ejecutar el proyecto debes tener instalado:
+* **Python:** 3.12 o superior.
+* **Base de Datos:** PostgreSQL 15+ (producción/desarrollo local).
+* **Motor OCR Complementario:** Tesseract OCR con paquetes de idioma español e inglés (`tesseract-ocr`, `tesseract-ocr-spa`).
+* **FFmpeg:** Requerido para procesamiento de audio y transcripción.
+* **Ollama:** Requerido para ejecutar localmente los modelos LLaMA 3.
 
-- Python 3.12 o superior
-- PostgreSQL
-- Tesseract OCR instalado en el sistema operativo
-- Git
-
-### Verificar Tesseract
+### Librerías del Sistema Operativo (Linux/Debian/Ubuntu)
 
 ```bash
-tesseract --version
+sudo apt update && sudo apt install -y \
+    tesseract-ocr \
+    tesseract-ocr-spa \
+    ffmpeg \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    libfontconfig1 \
+    poppler-utils
 ```
-
-Si el comando no responde, instala Tesseract y agrégalo al PATH del sistema.
 
 ---
 
-## Instalación
+## Instalación y Configuración
 
 ### 1. Clonar el repositorio
 
@@ -148,201 +110,136 @@ git clone https://github.com/smart-inspection/backend.git
 cd backend
 ```
 
-### 2. Crear y activar entorno virtual
-
-#### Windows PowerShell
-```bash
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-```
+### 2. Configurar el entorno virtual
 
 #### Linux / macOS
+
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
+```
+
+#### Windows
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
 ```
 
 ### 3. Instalar dependencias
 
 ```bash
+pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt
 ```
 
-### 4. Configurar variables de entorno
+### 4. Variables de entorno
 
-Crea un archivo `.env` en la raíz del proyecto.
-
-Ejemplo:
+Crea un archivo `.env` en la raíz del backend tomando como referencia la siguiente estructura:
 
 ```env
-APP_NAME=Smart Inspection Backend
+APP_NAME="Smart Inspection API"
 APP_ENV=development
 DEBUG=true
 API_V1_PREFIX=/api/v1
 
-DATABASE_URL=postgresql+psycopg://postgres:admin@localhost:5432/postgres
+# Conexión a Base de Datos (PostgreSQL)
+DATABASE_URL=postgresql+psycopg://usuario:password@localhost:5432/smart_inspection_db
+
+# Seguridad y Autenticación JWT
+SECRET_KEY=tu_clave_secreta_super_segura_de_al_menos_32_caracteres
+JWT_ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=480
+
+# Parámetros de OCR e IA
+PADDLE_MAX_IMAGE_WIDTH=4000
+PADDLE_MAX_IMAGE_HEIGHT=4000
+
+# Configuración del LLM
+LLM_PROVIDER=ollama
+LLM_MODEL=llama3
+LLM_BASE_URL=http://localhost:11434
+LLM_TIMEOUT=120
+LLM_TEMPERATURE=0.2
 ```
 
-> Ajusta el valor de `DATABASE_URL` según tu entorno local.
+### 5. Base de datos y migraciones
 
-### 5. Ejecutar el servidor
+Asegúrate de que el servicio PostgreSQL esté activo y la base de datos creada. Luego ejecuta las migraciones:
 
 ```bash
-python run.py
+# Aplicar todas las migraciones pendientes
+alembic upgrade head
+
+# Verificar el estado actual del esquema
+alembic current
 ```
 
-O con Uvicorn directamente:
+---
+
+## Ejecución del Servidor
+
+Inicia el servidor ASGI con recarga automática para desarrollo:
 
 ```bash
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Una vez en marcha, la documentación interactiva estará disponible en:
+
+* **Swagger UI:** [http://localhost:8000/docs](http://localhost:8000/docs)
+* **ReDoc:** [http://localhost:8000/redoc](http://localhost:8000/redoc)
+* **Healthcheck:** [http://localhost:8000/api/v1/health](http://localhost:8000/api/v1/health)
+
+---
+
+## Pruebas de Software
+
+La suite de pruebas está construida con `pytest` y configurada para ejecutarse sobre una base de datos SQLite en memoria (`sqlite://` con `StaticPool`), garantizando aislamiento sin afectar la base de datos de desarrollo o producción.
+
+```bash
+# Ejecutar todas las pruebas (unitarias e integración)
+pytest -v
+
+# Ejecutar únicamente pruebas unitarias
+pytest app/tests/unit/ -v
+
+# Ejecutar únicamente pruebas de integración
+pytest app/tests/integration/ -v
+
+# Generar reporte HTML detallado de ejecución
+pytest --html=reports/test_report.html --self-contained-html
 ```
 
 ---
 
-## Archivos subidos
+## Módulos Principales del API
 
-Las evidencias se almacenan localmente en:
+Todos los endpoints se encuentran bajo el prefijo `/api/v1`.
 
-```text
-uploads/inspections/{inspection_id}/
-```
-
-Y se exponen mediante:
-
-```text
-/uploads/...
-```
-
-Ejemplo de URL devuelta por la API:
-
-```text
-/uploads/inspections/1/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.png
-```
-
----
-
-## Endpoints principales
-
-## Health
-- `GET /`
-- `GET /health`
-
-## Inspecciones
-- `POST /api/v1/inspections`
-- `GET /api/v1/inspections`
-- `GET /api/v1/inspections/{inspection_id}`
-
-## Campos de inspección
-- endpoints para registrar y consultar campos asociados a la inspección
-
-## Evidencias
-- `POST /api/v1/inspections/{inspection_id}/evidences`
-- `GET /api/v1/inspections/{inspection_id}/evidences`
-
-## OCR
-- `POST /api/v1/evidences/{evidence_id}/ocr`
-
-## Transcripción
-- rutas de carga, procesamiento y edición de transcripciones
-
-## Informe
-- rutas para crear borrador
-- rutas para generar informe automático
-- rutas para editar y exportar informe
-
-## Estado y trazabilidad
-- rutas para consultar y actualizar estado del informe
-- rutas para historial y trazabilidad
+| Prefijo                       | Responsabilidad                                                         |
+| ----------------------------- | ----------------------------------------------------------------------- |
+| `/auth`                       | Inicio de sesión, emisión y renovación de tokens JWT.                   |
+| `/users`                      | Administración y consulta de usuarios e inspectores.                    |
+| `/inspection-requests`        | Registro público y conversión de solicitudes de clientes.               |
+| `/inspections`                | Creación, listado, detalle y gestión de estados de inspecciones.        |
+| `/inspections/{id}/fields`    | Gestión de campos técnicos normalizados y su estado de validación.      |
+| `/inspections/{id}/evidences` | Carga, consulta y actualización de metadatos de imágenes y audios.      |
+| `/ocr`                        | Extracción de texto sobre imágenes y validación contra campos técnicos. |
+| `/transcription`              | Procesamiento de notas de voz a texto mediante Whisper.                 |
+| `/report-drafts`              | Creación, edición y persistencia de versiones de borrador.              |
+| `/llm-report`                 | Generación asistida de informes mediante LLaMA 3 y LangChain.           |
+| `/reports`                    | Transiciones de estado del informe técnico y registro de auditoría.     |
+| `/report-export`              | Compilación y exportación de archivos `.docx` y `.pdf`.                 |
+| `/productivity`               | Medición de tiempos de reporte, cálculo de meta (≤20 min) y KPIs.       |
+| `/imports`                    | Previsualización y carga por lotes de informes históricos en DOCX.      |
 
 ---
 
-## Prueba rápida del flujo de evidencias
+## Documentación de la API
 
-### 1. Subir imagen
+Con el servidor ejecutándose, puedes acceder a la documentación generada automáticamente por FastAPI:
 
-Desde Swagger o desde frontend, enviar un `multipart/form-data` a:
-
-```http
-POST /api/v1/inspections/{inspection_id}/evidences
-```
-
-Campos esperados:
-
-- `file`
-- `evidence_category`
-- `caption`
-
-### 2. Listar evidencias
-
-```http
-GET /api/v1/inspections/{inspection_id}/evidences
-```
-
-### 3. Procesar OCR de una evidencia
-
-```http
-POST /api/v1/evidences/{evidence_id}/ocr
-```
-
----
-
-## Ejemplo de respuesta de evidencia
-
-```json
-{
-  "id": 1,
-  "inspection_id": 1,
-  "file_path": "uploads/inspections/1/abc123.png",
-  "file_url": "/uploads/inspections/1/abc123.png",
-  "file_type": "image/png",
-  "evidence_category": "placa",
-  "caption": "Foto de placa",
-  "ocr_extracted_text": null,
-  "ocr_confidence": null,
-  "ocr_processed": false,
-  "ocr_last_processed_at": null,
-  "uploaded_at": "2026-05-10T19:00:00Z"
-}
-```
-
----
-
-## Documentación interactiva
-
-Una vez levantado el backend, puedes usar:
-
-- Swagger UI: `http://127.0.0.1:8000/docs`
-- ReDoc: `http://127.0.0.1:8000/redoc`
-
----
-
-## Notas técnicas
-
-- El proyecto usa `StaticFiles` para exponer el directorio `uploads`.
-- El OCR está desacoplado del upload de evidencias.
-- La evidencia se registra primero y luego puede procesarse por OCR.
-- El generador de contexto del informe usa evidencias, OCR y transcripciones como insumos del documento final.
-- El sistema está preparado para crecimiento incremental del frontend y del pipeline de IA.
-
----
-
-## Estado del proyecto
-
-Backend en desarrollo activo, orientado a cubrir el MVP funcional del sistema de inspección inteligente y servir como base para la integración del frontend web.
-
----
-
-## Próximos pasos
-
-- inicializar repositorio frontend
-- construir flujo visual de inspecciones
-- crear módulo de carga y previsualización de evidencias
-- mostrar resultados OCR en interfaz
-- integrar transcripción y generación de informe
-- mejorar trazabilidad y dashboard
-
----
-
-## Equipo
-
-Proyecto académico/técnico orientado a la automatización del proceso de inspección y generación de informes mediante captura estructurada, OCR, transcripción y asistencia de IA.
+* **Swagger UI:** [http://localhost:8000/docs](http://localhost:8000/docs)
+* **ReDoc:** [http://localhost:8000/redoc](http://localhost:8000/redoc)
+* **OpenAPI JSON:** [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json)

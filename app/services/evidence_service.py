@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Evidence, Inspection
 from app.services.evidence_label_service import resolve_evidence_label
-from app.services.storage_service import save_evidence_upload
+from app.services.storage_service import save_evidence_upload, delete_physical_file
 from app.schemas.evidence import EvidenceUpdate
 
 def get_inspection(db: Session, inspection_id: int) -> Inspection | None:
@@ -141,8 +141,12 @@ def create_evidence(
     )
 
     db.add(evidence)
-    db.commit()
-    db.refresh(evidence)
+    try:
+        db.commit()
+        db.refresh(evidence)
+    except Exception:
+        db.rollback()
+        raise
     return evidence
 
 def list_evidences(db: Session, inspection_id: int) -> list[Evidence]:
@@ -220,6 +224,31 @@ def update_evidence(
             evidence.metadata_json = None
 
     db.add(evidence)
-    db.commit()
-    db.refresh(evidence)
+    try:
+        db.commit()
+        db.refresh(evidence)
+    except Exception:
+        db.rollback()
+        raise
     return evidence
+
+
+def eliminar_evidence(db: Session, evidence_id: int) -> bool:
+    """
+    Elimina la evidencia y su archivo físico del disco.
+    Retorna True si fue eliminada, False si no existía.
+    """
+    evidence = get_evidence(db, evidence_id)
+    if not evidence:
+        return False
+
+    file_path = evidence.file_path
+    try:
+        db.delete(evidence)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    delete_physical_file(file_path)
+    return True
