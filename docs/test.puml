@@ -1,0 +1,38 @@
+@startuml Mapa_Capacidades_EcoMarket
+!theme plain
+skinparam rectangle {
+    RoundCorner 10
+    BorderColor #2E7D32
+    BackgroundColor #F1F8E9
+    FontColor #1B5E20
+}
+
+title Mapa de Capacidades de Negocio Habilitadas - Cadena EcoMarket
+
+rectangle "1. Ventas y Omnicanalidad" as cap1 {
+    rectangle "Venta Presencial Offline-First\n(Smart POS)" as cap1_1 #E8F5E9
+    rectangle "Comercio Electrónico 24/7\n(Headless Commerce)" as cap1_2 #E8F5E9
+    rectangle "Retiro en Tienda (BOPIS)\n(Order Management System)" as cap1_3 #E8F5E9
+}
+
+rectangle "2. Inventario y Cadena de Suministro" as cap2 {
+    rectangle "Visibilidad en Tiempo Real\n(Event-Driven Architecture)" as cap2_1 #E8F5E9
+    rectangle "Trazabilidad de Orgánicos\n(Master Data Management)" as cap2_2 #E8F5E9
+    rectangle "Reabastecimiento Automático\n(Portal e-Procurement)" as cap2_3 #E8F5E9
+}
+
+rectangle "3. Gestión de Clientes (CRM)" as cap3 {
+    rectangle "Perfil Unificado 360°\n(CRM Cloud Centralizado)" as cap3_1 #E8F5E9
+    rectangle "Fidelización Omnicanal\n(Programa de Puntos Transversal)" as cap3_2 #E8F5E9
+}
+
+rectangle "4. Finanzas y Analítica" as cap4 {
+    rectangle "Consolidación Contable\n(Composable Cloud ERP)" as cap4_1 #E8F5E9
+    rectangle "Inteligencia de Negocios BI\n(Cloud Data Lakehouse)" as cap4_2 #E8F5E9
+}
+
+rectangle "5. TI, Escalabilidad y Seguridad" as cap5 {
+    rectangle "Alta Disponibilidad 99.99%\n(Arquitectura Cloud-Native)" as cap5_1 #E8F5E9
+    rectangle "Protección de Datos y Ciberseguridad\n(Modelo Zero Trust / ISO 27001)" as cap5_2 #E8F5E9
+}
+@enduml

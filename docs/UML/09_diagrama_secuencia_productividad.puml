@@ -1,0 +1,42 @@
+@startuml
+title Diagrama de secuencia — Medición de productividad del inspector
+
+actor Inspector
+actor Administrador
+boundary "Pantalla de detalle\nde inspección" as inspection_detail_screen
+boundary "Pantalla de dashboard\nde productividad" as productivity_dashboard_screen
+participant "Frontend\nReact" as frontend
+participant "API\nFastAPI" as api
+database "PostgreSQL" as db
+
+Inspector -> inspection_detail_screen: Iniciar elaboración del informe
+inspection_detail_screen -> frontend: Solicitar inicio de medición
+frontend -> api: PATCH /api/v1/productivity/inspection/{inspection_id}/start
+api -> db: Registrar report_started_at
+db --> api: Registro de productividad actualizado
+api --> frontend: Medición iniciada
+frontend --> inspection_detail_screen: Mostrar temporizador activo
+
+Inspector -> inspection_detail_screen: Generar, revisar y finalizar informe
+
+Inspector -> inspection_detail_screen: Finalizar elaboración del informe
+inspection_detail_screen -> frontend: Solicitar finalización de medición
+frontend -> api: PATCH /api/v1/productivity/inspection/{inspection_id}/finish
+api -> db: Consultar report_started_at
+db --> api: Hora de inicio del informe
+api -> api: Calcular duration_minutes
+api -> api: Evaluar meta menor o igual a 20 minutos
+api -> db: Guardar hora final, duración y cumplimiento
+db --> api: Registro de productividad actualizado
+api --> frontend: Indicadores actualizados
+frontend --> inspection_detail_screen: Mostrar duración y cumplimiento
+
+Administrador -> productivity_dashboard_screen: Consultar indicadores operativos
+productivity_dashboard_screen -> frontend: Aplicar filtros de consulta
+frontend -> api: GET /api/v1/productivity/dashboard
+api -> db: Consultar indicadores por inspector y estado
+db --> api: Datos agregados de productividad
+api --> frontend: KPIs de productividad
+frontend --> productivity_dashboard_screen: Mostrar dashboard
+productivity_dashboard_screen --> Administrador: Visualizar indicadores y cumplimiento
+@enduml

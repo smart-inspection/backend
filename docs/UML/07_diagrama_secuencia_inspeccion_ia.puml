@@ -1,0 +1,62 @@
+@startuml
+title Diagrama de secuencia — Gestión de inspección, evidencias e informe con IA
+
+actor Inspector
+boundary "Pantalla de creación\nde inspección" as inspection_create_screen
+boundary "Pantalla de detalle\nde inspección" as inspection_detail_screen
+participant "Frontend\nReact" as frontend
+participant "API\nFastAPI" as api
+database "PostgreSQL" as db
+collections "Almacenamiento\nde archivos" as storage
+participant "PaddleOCR /\nTesseract" as ocr
+participant "Whisper" as whisper
+participant "Ollama /\nLLaMA 3" as llm
+
+Inspector -> inspection_create_screen: Registra datos de inspección
+inspection_create_screen -> frontend: Enviar formulario
+frontend -> api: POST /api/v1/inspections
+api -> db: Guardar inspección
+db --> api: Inspección creada
+api --> frontend: Datos de inspección
+frontend --> inspection_detail_screen: Mostrar detalle de inspección
+
+Inspector -> inspection_detail_screen: Cargar evidencia fotográfica
+inspection_detail_screen -> frontend: Enviar archivo y metadatos
+frontend -> api: POST /api/v1/inspections/{inspection_id}/evidences
+api -> storage: Guardar archivo
+storage --> api: Ruta del archivo
+api -> db: Registrar evidencia
+api --> frontend: Evidencia registrada
+frontend --> inspection_detail_screen: Mostrar evidencia cargada
+
+Inspector -> inspection_detail_screen: Ejecutar procesamiento OCR
+inspection_detail_screen -> frontend: Solicitar extracción de texto
+frontend -> api: POST /api/v1/evidences/{evidence_id}/ocr
+api -> storage: Obtener imagen
+storage --> api: Archivo de imagen
+api -> ocr: Procesar imagen
+ocr --> api: Texto extraído y confianza
+api -> db: Guardar resultado OCR
+api --> frontend: Resultado OCR
+frontend --> inspection_detail_screen: Mostrar texto y confianza OCR
+
+Inspector -> inspection_detail_screen: Registrar audio de observación
+inspection_detail_screen -> frontend: Enviar ruta o archivo de audio
+frontend -> api: POST /api/v1/transcription
+api -> whisper: Transcribir audio
+whisper --> api: Texto transcrito y confianza
+api -> db: Guardar transcripción
+api --> frontend: Texto transcrito
+frontend --> inspection_detail_screen: Mostrar texto editable
+
+Inspector -> inspection_detail_screen: Generar borrador del informe
+inspection_detail_screen -> frontend: Solicitar generación de informe
+frontend -> api: POST /api/v1/llm-report/generate/{inspection_id}
+api -> db: Consultar campos, OCR y transcripciones
+db --> api: Contexto consolidado de inspección
+api -> llm: Generar informe técnico
+llm --> api: Borrador generado
+api -> db: Guardar borrador en estado draft
+api --> frontend: Borrador de informe
+frontend --> inspection_detail_screen: Mostrar borrador generado
+@enduml
