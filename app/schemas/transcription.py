@@ -1,5 +1,5 @@
 from datetime import datetime
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, computed_field
 
 class TranscriptionCreate(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
@@ -29,6 +29,18 @@ class TranscriptionResponse(BaseModel):
     edited_manually: bool
     created_at: datetime
     updated_at: datetime
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def confidence_level(self) -> str:
+        """Nivel semántico de confianza del modelo ASR (high/medium/low)."""
+        if self.confidence is None:
+            return "unknown"
+        if self.confidence >= 0.90:
+            return "high"
+        if self.confidence >= 0.70:
+            return "medium"
+        return "low"
 
 class TranscriptionUpdate(BaseModel):
     final_text: str
