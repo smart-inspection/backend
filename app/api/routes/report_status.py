@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.db.session import SessionLocal
+from app.core.dependencies import get_db, tecnico, todos
+from app.db.models.users import User
 from app.schemas.report_status import (
     ReportStatusLogResponse,
     ReportStatusResponse,
@@ -15,16 +16,12 @@ from app.services.report_status_service import (
 
 router = APIRouter(prefix="/reports", tags=["report-status"])
 
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
 @router.get("/{report_draft_id}/status", response_model=ReportStatusResponse)
-def get_status(report_draft_id: int, db: Session = Depends(get_db)):
+def get_status(
+    report_draft_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(todos),
+):
     report = get_report_or_404(db, report_draft_id)
     return ReportStatusResponse(
         report_draft_id=report.id,
@@ -40,6 +37,7 @@ def update_status(
     report_draft_id: int,
     payload: ReportStatusUpdateRequest,
     db: Session = Depends(get_db),
+    _: User = Depends(tecnico),
 ):
     report = change_report_status(
         db=db,
@@ -63,5 +61,6 @@ def get_history(
     report_draft_id: int,
     limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
+    _: User = Depends(todos),
 ):
     return list_report_history(db, report_draft_id, limit=limit)

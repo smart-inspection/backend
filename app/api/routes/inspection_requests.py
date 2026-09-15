@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
-from app.db.session import SessionLocal
+from app.core.dependencies import get_db, solo_admin
+from app.db.models.users import User
 from app.schemas.inspection_request import (
+    InspectionRequestConvert,
     InspectionRequestCreate,
-    InspectionRequestResponse, InspectionRequestConvert,
+    InspectionRequestResponse,
 )
 from app.services.inspection_request_service import (
     create_inspection_request,
@@ -17,14 +19,6 @@ from app.services.inspection_request_service import (
 router = APIRouter(prefix="/inspection-requests", tags=["inspection-requests"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 @router.post("/", response_model=InspectionRequestResponse, status_code=201)
 def create_inspection_request_endpoint(
     payload: InspectionRequestCreate,
@@ -33,9 +27,10 @@ def create_inspection_request_endpoint(
     return create_inspection_request(db, payload)
 
 
-@router.get("/", response_model=list[InspectionRequestResponse])
+@router.get("", response_model=list[InspectionRequestResponse])
 def list_inspection_requests_endpoint(
     db: Session = Depends(get_db),
+    _: User = Depends(solo_admin),
 ):
     return list_inspection_requests(db)
 
@@ -44,6 +39,7 @@ def list_inspection_requests_endpoint(
 def get_inspection_request_endpoint(
     inspection_request_id: int,
     db: Session = Depends(get_db),
+    _: User = Depends(solo_admin),
 ):
     inspection_request = get_inspection_request_by_id(db, inspection_request_id)
     if not inspection_request:
@@ -52,9 +48,10 @@ def get_inspection_request_endpoint(
 
 @router.patch("/{inspection_request_id}/convert", response_model=InspectionRequestResponse)
 def convert_inspection_request_endpoint(
-        inspection_request_id: int,
-        payload: InspectionRequestConvert,
-        db: Session = Depends(get_db),
+    inspection_request_id: int,
+    payload: InspectionRequestConvert,
+    db: Session = Depends(get_db),
+    _: User = Depends(solo_admin),
 ):
     try:
         return convert_inspection_request(db, inspection_request_id, payload)
@@ -66,6 +63,7 @@ def convert_inspection_request_endpoint(
 def delete_inspection_request_endpoint(
     request_id: int,
     db: Session = Depends(get_db),
+    _: User = Depends(solo_admin),
 ):
     try:
         eliminado = eliminar_inspection_request(db, request_id)

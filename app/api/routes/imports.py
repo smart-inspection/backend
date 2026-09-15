@@ -4,7 +4,7 @@ from tempfile import NamedTemporaryFile
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_user, get_db
+from app.core.dependencies import get_current_user, get_db, tecnico
 from app.db.models.users import User
 from app.schemas.imports import (
     docx_import_preview_response,
@@ -26,7 +26,7 @@ def _persist_temp_file(upload_file: UploadFile) -> Path:
 @router.post("/docx/preview", response_model=docx_import_preview_response)
 def preview_docx_import(
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(tecnico),
 ):
     if not file.filename or not file.filename.lower().endswith(".docx"):
         raise HTTPException(status_code=400, detail="Solo se permiten archivos .docx")
@@ -44,7 +44,7 @@ def import_docx_report(
     generate_llm_draft: bool = Form(True),
     requested_by_email: str | None = Form(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(tecnico),
 ):
     if not file.filename or not file.filename.lower().endswith(".docx"):
         raise HTTPException(status_code=400, detail="Solo se permiten archivos .docx")

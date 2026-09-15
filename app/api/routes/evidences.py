@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.db.session import SessionLocal
+from app.core.dependencies import get_db, tecnico, todos
+from app.db.models.users import User
 from app.schemas.evidence import EvidenceOCRResponse, EvidenceResponse, EvidenceUpdate
 from app.services.evidence_ocr_service import process_evidence_ocr
 from app.services.evidence_service import (
@@ -15,13 +16,6 @@ from app.services.evidence_service import (
 
 router = APIRouter(tags=["evidences"])
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
 @router.post("/inspections/{inspection_id}/evidences", response_model=EvidenceResponse, status_code=201)
 def create_evidence_endpoint(
     inspection_id: int,
@@ -34,6 +28,7 @@ def create_evidence_endpoint(
     side: str | None = Form(None),
     is_reference: bool = Form(False),
     db: Session = Depends(get_db),
+    _: User = Depends(tecnico),
 ):
     try:
         evidence = create_evidence(
@@ -61,6 +56,7 @@ def create_evidence_endpoint(
 def list_evidences_endpoint(
     inspection_id: int,
     db: Session = Depends(get_db),
+    _: User = Depends(todos),
 ):
     inspection = get_inspection(db, inspection_id)
     if not inspection:
@@ -74,6 +70,7 @@ def list_evidences_endpoint(
 def run_ocr_for_evidence_endpoint(
     evidence_id: int,
     db: Session = Depends(get_db),
+    _: User = Depends(tecnico),
 ):
     try:
         evidence = process_evidence_ocr(db, evidence_id)
@@ -96,6 +93,7 @@ def update_evidence_endpoint(
         evidence_id: int,
         payload: EvidenceUpdate,
         db: Session = Depends(get_db),
+        _: User = Depends(tecnico),
 ):
     evidence = update_evidence(db, evidence_id, payload)
     if not evidence:
@@ -107,6 +105,7 @@ def update_evidence_endpoint(
 def delete_evidence_endpoint(
     evidence_id: int,
     db: Session = Depends(get_db),
+    _: User = Depends(tecnico),
 ):
     try:
         eliminado = eliminar_evidence(db, evidence_id)

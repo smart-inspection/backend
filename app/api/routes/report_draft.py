@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
-from app.db.session import SessionLocal
+from app.core.dependencies import get_db, tecnico, todos
+from app.db.models.users import User
 from app.schemas.report_draft import (
     ReportDraftGenerateRequest,
     ReportDraftResponse,
@@ -18,18 +19,12 @@ from app.services.report_draft_service import (
 router = APIRouter(prefix="/report-drafts", tags=["report-drafts"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
 @router.post("/generate/{inspection_id}", response_model=ReportDraftResponse, status_code=201)
 def generate_report_draft_endpoint(
     inspection_id: int,
     payload: ReportDraftGenerateRequest,
     db: Session = Depends(get_db),
+    _: User = Depends(tecnico),
 ):
     try:
         return generate_report_draft(db, inspection_id, payload.template_version)
@@ -40,13 +35,22 @@ def generate_report_draft_endpoint(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Error al generar borrador: {exc}")
 
+
 @router.get("/inspection/{inspection_id}", response_model=list[ReportDraftResponse])
-def list_report_drafts_by_inspection_endpoint(inspection_id: int, db: Session = Depends(get_db)):
+def list_report_drafts_by_inspection_endpoint(
+    inspection_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(todos),
+):
     return list_report_drafts_by_inspection(db, inspection_id)
 
 
 @router.get("/{draft_id}", response_model=ReportDraftResponse)
-def get_report_draft_endpoint(draft_id: int, db: Session = Depends(get_db)):
+def get_report_draft_endpoint(
+    draft_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(todos),
+):
     draft = get_report_draft_by_id(db, draft_id)
     if not draft:
         raise HTTPException(status_code=404, detail="Report draft not found")
@@ -58,6 +62,7 @@ def update_report_draft_endpoint(
     draft_id: int,
     payload: ReportDraftUpdate,
     db: Session = Depends(get_db),
+    _: User = Depends(tecnico),
 ):
     draft = update_report_draft(db, draft_id, payload.edited_text, payload.status)
     if not draft:
@@ -69,6 +74,7 @@ def update_report_draft_endpoint(
 def delete_report_draft_endpoint(
     draft_id: int,
     db: Session = Depends(get_db),
+    _: User = Depends(tecnico),
 ):
     try:
         eliminado = eliminar_report_draft(db, draft_id)
