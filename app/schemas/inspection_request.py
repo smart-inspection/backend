@@ -14,6 +14,8 @@ class InspectionRequestBase(BaseModel):
     equipment_type: str | None = Field(default=None, max_length=100)
     notes: str | None = Field(default=None, max_length=5000)
     status: str = Field(default="pending", max_length=50)
+    consent_accepted: bool = Field(default=False, description="Consentimiento informado aceptado")
+    consent_third_party: bool = Field(default=False, description="Consentimiento para tratamiento por terceros")
 
     @field_validator(
         "company_name",
@@ -54,6 +56,8 @@ class InspectionRequestCreate(InspectionRequestBase):
 
 class InspectionRequestResponse(InspectionRequestBase):
     id: int
+    consent_timestamp: datetime | None = None
+    consent_ip_address: str | None = None
     inspection_id: int | None = None
     created_at: datetime
     updated_at: datetime

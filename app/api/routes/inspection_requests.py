@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_db, solo_admin
@@ -19,12 +21,31 @@ from app.services.inspection_request_service import (
 router = APIRouter(prefix="/inspection-requests", tags=["inspection-requests"])
 
 
-@router.post("/", response_model=InspectionRequestResponse, status_code=201)
+def _extract_client_ip(request: Request) -> str:
+    """Extrae la IP real del cliente considerando proxies inversos o conexión directa."""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()[:45]
+    if request.client and request.client.host:
+        return request.client.host[:45]
+    return "127.0.0.1"
+
+
+@router.post("", response_model=InspectionRequestResponse, status_code=201)
+@router.post("/", response_model=InspectionRequestResponse, status_code=201, include_in_schema=False)
 def create_inspection_request_endpoint(
     payload: InspectionRequestCreate,
+    request: Request,
     db: Session = Depends(get_db),
 ):
-    return create_inspection_request(db, payload)
+    client_ip = _extract_client_ip(request)
+    consent_timestamp = datetime.now(timezone.utc) if payload.consent_accepted else None
+    return create_inspection_request(
+        db=db,
+        payload=payload,
+        client_ip=client_ip,
+        consent_timestamp=consent_timestamp,
+    )
 
 
 @router.get("", response_model=list[InspectionRequestResponse])

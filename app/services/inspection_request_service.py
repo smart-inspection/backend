@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.db import Inspection
@@ -8,8 +9,18 @@ from app.schemas.inspection_request import InspectionRequestCreate, InspectionRe
 def create_inspection_request(
     db: Session,
     payload: InspectionRequestCreate,
+    client_ip: str | None = None,
+    consent_timestamp: datetime | None = None,
 ) -> InspectionRequest:
-    inspection_request = InspectionRequest(**payload.model_dump())
+    data = payload.model_dump()
+    if client_ip:
+        data["consent_ip_address"] = client_ip[:45]
+    if consent_timestamp:
+        data["consent_timestamp"] = consent_timestamp
+    elif data.get("consent_accepted"):
+        data["consent_timestamp"] = datetime.now(timezone.utc)
+
+    inspection_request = InspectionRequest(**data)
     db.add(inspection_request)
     try:
         db.commit()

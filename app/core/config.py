@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     paddle_max_image_width: int = 1920
     paddle_max_image_height: int = 1920
 
+    field_encryption_key: str = "0uTJNMRhtt54hP6b1YvDYRKlbnfbhIoVovYae_rz1uE="
+
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",
         env_file_encoding="utf-8",
