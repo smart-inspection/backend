@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.db.session import SessionLocal
+from app.core.dependencies import get_db, tecnico, todos
+from app.db.models.users import User
 from app.schemas.productivity import (
     ProductivityCreate,
     ProductivityFinishRequest,
@@ -26,21 +27,15 @@ from app.services.productivity_service import (
 )
 
 from datetime import date
-from fastapi import Query
 
 router = APIRouter(prefix="/productivity", tags=["productivity"])
 
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 @router.post("/", response_model=ProductivityResponse, status_code=201)
-def create_productivity_endpoint(payload: ProductivityCreate, db: Session = Depends(get_db)):
+def create_productivity_endpoint(
+    payload: ProductivityCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(tecnico),
+):
     try:
         return create_productivity(db, payload)
     except ValueError as exc:
@@ -48,7 +43,11 @@ def create_productivity_endpoint(payload: ProductivityCreate, db: Session = Depe
 
 
 @router.get("/inspection/{inspection_id}", response_model=ProductivityResponse)
-def get_productivity_endpoint(inspection_id: int, db: Session = Depends(get_db)):
+def get_productivity_endpoint(
+    inspection_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(todos),
+):
     productivity = get_productivity_by_inspection(db, inspection_id)
     if not productivity:
         raise HTTPException(status_code=404, detail="Productivity record not found")
@@ -60,6 +59,7 @@ def update_productivity_endpoint(
     inspection_id: int,
     payload: ProductivityUpdate,
     db: Session = Depends(get_db),
+    _: User = Depends(tecnico),
 ):
     productivity = update_productivity(db, inspection_id, payload)
     if not productivity:
@@ -72,6 +72,7 @@ def start_productivity_endpoint(
     inspection_id: int,
     payload: ProductivityStartRequest,
     db: Session = Depends(get_db),
+    _: User = Depends(tecnico),
 ):
     try:
         return start_productivity(db, inspection_id, payload.report_started_at)
@@ -84,6 +85,7 @@ def finish_productivity_endpoint(
     inspection_id: int,
     payload: ProductivityFinishRequest,
     db: Session = Depends(get_db),
+    _: User = Depends(tecnico),
 ):
     try:
         return finish_productivity(
@@ -102,6 +104,7 @@ def get_productivity_summary_endpoint(
     inspector_name: str | None = Query(default=None),
     operational_status: str | None = Query(default=None),
     db: Session = Depends(get_db),
+    _: User = Depends(todos),
 ):
     return get_productivity_summary(
         db,
@@ -119,6 +122,7 @@ def get_productivity_by_inspector_endpoint(
     inspector_name: str | None = Query(default=None),
     operational_status: str | None = Query(default=None),
     db: Session = Depends(get_db),
+    _: User = Depends(todos),
 ):
     return get_productivity_by_inspector(
         db,
@@ -135,6 +139,7 @@ def get_productivity_by_status_endpoint(
     date_to: date | None = Query(default=None),
     inspector_name: str | None = Query(default=None),
     db: Session = Depends(get_db),
+    _: User = Depends(todos),
 ):
     return get_productivity_by_status(
         db,
@@ -151,6 +156,7 @@ def get_productivity_dashboard_endpoint(
     inspector_name: str | None = Query(default=None),
     operational_status: str | None = Query(default=None),
     db: Session = Depends(get_db),
+    _: User = Depends(todos),
 ):
     return get_productivity_dashboard(
         db,

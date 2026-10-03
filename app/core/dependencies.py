@@ -41,3 +41,11 @@ def require_role(*roles: str):
         return current_user
 
     return guard
+
+
+# ---------------------------------------------------------------------------
+# Aliases de roles reutilizables en todos los routers
+# ---------------------------------------------------------------------------
+solo_admin = require_role("admin")
+tecnico = require_role("admin", "inspector")
+todos = require_role("admin", "inspector", "viewer")

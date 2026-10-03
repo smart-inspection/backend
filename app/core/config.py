@@ -20,8 +20,8 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 8
 
-    paddle_max_image_width: int = 4000
-    paddle_max_image_height: int = 4000
+    paddle_max_image_width: int = 1920
+    paddle_max_image_height: int = 1920
 
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",

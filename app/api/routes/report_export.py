@@ -4,20 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from app.db.session import SessionLocal
+from app.core.dependencies import get_db, todos
+from app.db.models.users import User
 from app.services.report_export_service import (
     export_report_docx,
     export_report_pdf,
 )
 
 router = APIRouter(prefix="/report-export", tags=["report-export"])
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 def _build_file_response(file_path: Path, media_type: str):
     if not file_path.exists():
@@ -30,7 +24,11 @@ def _build_file_response(file_path: Path, media_type: str):
     )
 
 @router.get("/docx/{draft_id}")
-def export_report_docx_endpoint(draft_id: int, db: Session = Depends(get_db)):
+def export_report_docx_endpoint(
+    draft_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(todos),
+):
     try:
         file_path = Path(export_report_docx(db, draft_id))
         return _build_file_response(
@@ -44,7 +42,11 @@ def export_report_docx_endpoint(draft_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/pdf/{draft_id}")
-def export_report_pdf_endpoint(draft_id: int, db: Session = Depends(get_db)):
+def export_report_pdf_endpoint(
+    draft_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(todos),
+):
     try:
         file_path = Path(export_report_pdf(db, draft_id))
         return _build_file_response(file_path, "application/pdf")

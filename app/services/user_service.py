@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import get_password_hash
 from app.db.models.users import User
+from app.db.models.inspection import Inspection
 from app.schemas.users import UserCreate, UserUpdate
 
 VALID_ROLES = {"admin", "inspector", "viewer"}
@@ -55,6 +56,53 @@ def update_user(db: Session, user_id: int, payload: UserUpdate) -> User | None:
     if payload.is_active is not None:
         user.is_active = payload.is_active
 
-    db.commit()
-    db.refresh(user)
+    try:
+        db.commit()
+        db.refresh(user)
+    except Exception:
+        db.rollback()
+        raise
     return user
+
+
+STATUSES_ACTIVOS = {"draft", "in_review", "observed"}
+
+
+def eliminar_usuario(db: Session, user_id: int) -> bool:
+    """
+    Elimina un usuario.
+    - Bloquea si tiene inspecciones en estado activo (draft/in_review/observed).
+    - Si solo tiene inspecciones finalizadas, desvincula responsible_inspector_id
+      antes de borrar para evitar FK violation en PostgreSQL.
+    Retorna True si fue eliminado, False si no existía.
+    """
+    user = get_user_by_id(db, user_id)
+    if not user:
+        return False
+
+    inspecciones_activas = (
+        db.query(Inspection)
+        .filter(
+            Inspection.responsible_inspector_id == user_id,
+            Inspection.status.in_(STATUSES_ACTIVOS),
+        )
+        .count()
+    )
+    if inspecciones_activas > 0:
+        raise ValueError(
+            f"El usuario tiene {inspecciones_activas} inspección(es) activa(s) asignada(s). "
+            "Reasigna o finaliza las inspecciones antes de eliminar el usuario."
+        )
+
+    # Desvincular inspector de inspecciones finalizadas para liberar la FK
+    db.query(Inspection).filter(
+        Inspection.responsible_inspector_id == user_id
+    ).update({"responsible_inspector_id": None}, synchronize_session="fetch")
+
+    try:
+        db.delete(user)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return True

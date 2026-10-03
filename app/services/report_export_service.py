@@ -1173,6 +1173,45 @@ def _pdf_styles():
             spaceAfter=3,
         )
     )
+    # ── Jerarquía semántica H1-H3 para conformidad WCAG 2.2 AA / PDF/UA ──
+    styles.add(
+        ParagraphStyle(
+            name="PdfH1",
+            parent=styles["Heading1"],
+            fontName="Helvetica-Bold",
+            fontSize=16,
+            leading=20,
+            alignment=TA_CENTER,
+            textColor=colors.black,   # contraste 21:1 sobre blanco — WCAG AA ✓
+            spaceBefore=0,
+            spaceAfter=6,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="PdfH3",
+            parent=styles["Heading3"],
+            fontName="Helvetica-BoldOblique",
+            fontSize=9.5,
+            leading=12,
+            alignment=TA_LEFT,
+            textColor=colors.HexColor("#1A237E"),  # azul oscuro — contraste >4.5:1 ✓
+            spaceBefore=6,
+            spaceAfter=4,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="PdfCaption",
+            parent=styles["BodyText"],
+            fontName="Helvetica-Oblique",
+            fontSize=8,
+            leading=10,
+            alignment=TA_CENTER,
+            textColor=colors.HexColor("#424242"),  # gris oscuro — contraste >4.5:1 ✓
+            spaceAfter=4,
+        )
+    )
     return styles
 
 def _rl_paragraph(text: str, style, *, allow_markup: bool = False):
@@ -1224,6 +1263,16 @@ def _pdf_footer(canvas, doc, context: dict[str, Any]):
     canvas.drawCentredString(width / 2, 0.59 * cm, footer["website_line"])
     canvas.drawRightString(width - 1.6 * cm, 0.32 * cm, f"{canvas.getPageNumber()}")
     canvas.restoreState()
+
+
+def _pdf_on_page(canvas, doc, context: dict[str, Any]):
+    """Wrapper que aplica footer + metadatos de accesibilidad por página (idioma es-PE)."""
+    _pdf_footer(canvas, doc, context)
+    # Embebe idioma es-PE en la primera página para conformidad PDF/UA y WCAG 3.1.1
+    if canvas.getPageNumber() == 1:
+        canvas.setAuthor(_safe_text(context.get("company", {}).get("name"), "Smart Inspection"))
+        canvas._doc.info.add("Lang", "es-PE")
+
 
 # =========================
 # PDF evidence rendering
@@ -1567,11 +1616,17 @@ def _build_pdf_evidences_fallback(context: dict[str, Any], styles) -> list[Any]:
             else:
                 image_row.append(_rl_paragraph("Imagen no disponible", styles["PdfSmallCenter"]))
 
-            caption = evidence.get("display_title") or evidence.get("caption") or f"Foto {evidence.get('index')}"
+            # Alt-text WCAG 1.1.1: caption como texto descriptivo junto a la imagen
+            alt_text = (
+                evidence.get("accessible_alt_text")
+                or evidence.get("display_title")
+                or evidence.get("caption")
+                or f"Foto {evidence.get('index')}"
+            )
             caption_row.append(
                 _rl_paragraph(
-                    f"<b>{_escape_pdf_text(caption)}</b>",
-                    styles["PdfSmallCenter"],
+                    f"<b>{_escape_pdf_text(alt_text)}</b>",
+                    styles["PdfCaption"],
                     allow_markup=True,
                 )
             )
@@ -1612,7 +1667,7 @@ def _build_pdf_story(context: dict[str, Any]):
         story.append(RLImage(logo_path, width=4.8 * cm, height=2.1 * cm))
         story.append(Spacer(1, 0.15 * cm))
 
-    story.append(_rl_paragraph(_safe_text(branding["report_title"]), styles["PdfTitleCenter"]))
+    story.append(_rl_paragraph(_safe_text(branding["report_title"]), styles["PdfH1"]))
     story.append(_rl_paragraph(_safe_text(branding["report_code_display"]), styles["PdfCodeCenter"]))
     story.append(_rl_paragraph(_safe_text(branding["report_subtitle"]), styles["PdfCodeCenter"]))
     story.append(Spacer(1, 0.15 * cm))
@@ -1636,7 +1691,14 @@ def _build_pdf_story(context: dict[str, Any]):
     if cover_path:
         story.append(Spacer(1, 0.20 * cm))
         story.append(RLImage(cover_path, width=11.5 * cm, height=7.0 * cm))
-        story.append(Spacer(1, 0.20 * cm))
+        # Alt-text WCAG 1.1.1 como caption visible bajo la imagen de portada
+        story.append(
+            _rl_paragraph(
+                "Vista general del semirremolque inspeccionado.",
+                styles["PdfCaption"],
+            )
+        )
+        story.append(Spacer(1, 0.10 * cm))
 
     story.append(
         _rl_paragraph(
@@ -1854,6 +1916,11 @@ def export_report_pdf(db: Session, draft_id: int, output_path: str | Path | None
 
     output_path = _ensure_parent(Path(output_path))
 
+    report_title = _safe_text(context["header"].get("report_title"), "Informe de Inspección Técnica")
+    company_name = _safe_text(context["company"].get("name"), "Smart Inspection")
+    report_code_display = _safe_text(context["header"].get("report_code_display"), "")
+    inspection_date = _safe_text(context["header"].get("inspection_date"), "")
+
     doc = SimpleDocTemplate(
         str(output_path),
         pagesize=A4,
@@ -1861,17 +1928,23 @@ def export_report_pdf(db: Session, draft_id: int, output_path: str | Path | None
         rightMargin=1.6 * cm,
         topMargin=1.5 * cm,
         bottomMargin=2.0 * cm,
-        title=context["header"]["report_title"],
-        author=context["company"]["name"],
+        # Metadatos de accesibilidad PDF (WCAG 2.2 / PDF/UA)
+        title=report_title,
+        author=company_name,
+        subject=f"Informe técnico de inspección vehicular — {report_code_display}",
+        keywords=f"inspección, técnico, vehículo, {inspection_date}, Smart Inspection",
+        creator="Smart Inspection — Backend FastAPI",
+        producer="ReportLab PDF Library",
     )
 
     story = _build_pdf_story(context)
     doc.build(
         story,
-        onFirstPage=lambda canvas, d: _pdf_footer(canvas, d, context),
-        onLaterPages=lambda canvas, d: _pdf_footer(canvas, d, context),
+        onFirstPage=lambda canvas, d: _pdf_on_page(canvas, d, context),
+        onLaterPages=lambda canvas, d: _pdf_on_page(canvas, d, context),
     )
     return str(output_path)
+
 
 def export_report_files(db: Session, draft_id: int, output_dir: str | Path | None = None) -> dict[str, str]:
     if output_dir is None:

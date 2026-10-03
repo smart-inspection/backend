@@ -1,27 +1,42 @@
+"""
+Servicio OCR alternativo basado en Tesseract para evidencias.
+
+Delega la normalización de imagen al pipeline centralizado
+en ``app.integrations.ocr.preprocessing``.
+"""
+
+from __future__ import annotations
+
+import gc
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytesseract
-from PIL import Image, ImageOps
+from PIL import Image, UnidentifiedImageError
 from pytesseract import Output
 from sqlalchemy.orm import Session
 
 from app.db.models import Evidence
+from app.integrations.ocr.preprocessing import (
+    normalize_image,
+    validate_image_integrity,
+)
+
+logger = logging.getLogger(__name__)
 
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
-def _load_image(image_path: Path) -> Image.Image:
-    image = Image.open(image_path)
-    image = ImageOps.exif_transpose(image)
-    image = image.convert("L")
-    image = ImageOps.autocontrast(image)
-    return image
 
 def _extract_text_and_confidence(image: Image.Image) -> tuple[str | None, float | None]:
-    data = pytesseract.image_to_data(image, output_type=Output.DICT, config="--oem 3 --psm 6")
+    """Ejecuta Tesseract sobre una imagen PIL ya normalizada."""
+    data = pytesseract.image_to_data(
+        image, output_type=Output.DICT, config="--oem 3 --psm 6",
+    )
 
     words: list[str] = []
     confidences: list[float] = []
+
     for text, conf in zip(data["text"], data["conf"]):
         clean_text = (text or "").strip()
         try:
@@ -36,11 +51,24 @@ def _extract_text_and_confidence(image: Image.Image) -> tuple[str | None, float 
             confidences.append(conf_value)
 
     extracted_text = " ".join(words).strip() or None
-    avg_confidence = round(sum(confidences) / len(confidences), 2) if confidences else None
+    avg_confidence = (
+        round(sum(confidences) / len(confidences), 2) if confidences else None
+    )
 
     return extracted_text, avg_confidence
 
+
 def process_evidence_ocr(db: Session, evidence_id: int) -> Evidence | None:
+    """Pipeline Tesseract con validación defensiva de imagen.
+
+    1. Valida integridad del archivo.
+    2. Normaliza con el pipeline centralizado (EXIF, RGB, downscale 1920 px).
+    3. Ejecuta Tesseract.
+    4. Persiste resultados.
+
+    Si la imagen está corrupta o es ilegible, registra ``confidence=0``
+    sin romper la ejecución del servidor.
+    """
     evidence = db.query(Evidence).filter(Evidence.id == evidence_id).first()
     if not evidence:
         return None
@@ -52,8 +80,36 @@ def process_evidence_ocr(db: Session, evidence_id: int) -> Evidence | None:
     if not absolute_path.exists():
         raise ValueError("No se encontró el archivo de la evidencia")
 
-    image = _load_image(absolute_path)
-    extracted_text, confidence = _extract_text_and_confidence(image)
+    try:
+        # Validar integridad antes de procesar
+        validate_image_integrity(absolute_path)
+
+        # Normalizar con pipeline centralizado (devuelve PIL.Image en memoria)
+        image = normalize_image(
+            absolute_path,
+            max_side=1920,
+            apply_sharpen=True,
+            convert_grayscale=True,
+        )
+
+        extracted_text, confidence = _extract_text_and_confidence(image)
+
+    except UnidentifiedImageError:
+        logger.warning(
+            "Imagen corrupta o no reconocida (evidence_id=%s): %s",
+            evidence_id, absolute_path,
+        )
+        extracted_text = None
+        confidence = 0.0
+    except (OSError, RuntimeError) as exc:
+        logger.error(
+            "Error procesando Tesseract OCR (evidence_id=%s): %s",
+            evidence_id, exc,
+        )
+        extracted_text = None
+        confidence = 0.0
+    finally:
+        gc.collect()
 
     evidence.ocr_extracted_text = extracted_text
     evidence.ocr_confidence = confidence

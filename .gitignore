@@ -7,3 +7,7 @@
 /output/reports/
 /app/templates/
 /scripts/
+/.pytest_cache/
+/.agents/
+/docs/
+app/api/routes/__pycache__/

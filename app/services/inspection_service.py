@@ -3,7 +3,10 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session, selectinload
 
 from app.db.models import Inspection, InspectionProductivity, User
+from app.db.models.evidence import Evidence
+from app.db.models.transcription import Transcription
 from app.schemas.inspection import InspectionCreate
+from app.services.storage_service import delete_physical_file
 
 VALID_INSPECTION_STATUSES = {"draft", "in_review", "observed", "finalized"}
 
@@ -29,8 +32,12 @@ def update_inspection_status(db: Session, inspection_id: int, new_status: str) -
     inspection.updated_at = datetime.now(timezone.utc)
 
     db.add(inspection)
-    db.commit()
-    db.refresh(inspection)
+    try:
+        db.commit()
+        db.refresh(inspection)
+    except Exception:
+        db.rollback()
+        raise
     return inspection
 
 
@@ -57,7 +64,11 @@ def create_inspection(db: Session, payload: InspectionCreate) -> Inspection:
     )
     db.add(productivity)
 
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     created = get_inspection_by_id(db, inspection.id)
     if created:
@@ -83,3 +94,60 @@ def get_inspection_by_id(db: Session, inspection_id: int) -> Inspection | None:
         .filter(Inspection.id == inspection_id)
         .first()
     )
+
+
+def eliminar_inspection(db: Session, inspection_id: int) -> bool:
+    """
+    Elimina una inspección con cascada completa:
+    1. Borra físicamente archivos de evidencias.
+    2. Borra físicamente archivos de audio de transcripciones.
+    3. Elimina transcripciones explícitamente (sin cascade en modelo).
+    4. db.delete(inspection) — ORM elimina en cascada: fields, evidences,
+       productivity, report_drafts -> status_logs.
+    Retorna True si fue eliminada, False si no existía.
+    """
+    inspection = (
+        db.query(Inspection)
+        .options(
+            selectinload(Inspection.evidences),
+            selectinload(Inspection.fields),
+            selectinload(Inspection.report_drafts),
+        )
+        .filter(Inspection.id == inspection_id)
+        .first()
+    )
+    if not inspection:
+        return False
+
+    # 1. Recolectar rutas físicas de evidencias
+    rutas_evidencias = [e.file_path for e in inspection.evidences if e.file_path]
+
+    # 2. Recolectar rutas físicas de transcripciones y eliminar registros
+    transcripciones = (
+        db.query(Transcription)
+        .filter(Transcription.inspection_id == inspection_id)
+        .all()
+    )
+    rutas_transcripciones = [
+        t.source_file_path for t in transcripciones if t.source_file_path
+    ]
+    for transcripcion in transcripciones:
+        db.delete(transcripcion)
+
+    # 3. Eliminar inspección (cascada ORM: fields, evidences, productivity,
+    #    report_drafts -> status_logs)
+    db.delete(inspection)
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    # 4. Borrar archivos físicos post-commit (fallo no revierte la BD)
+    for ruta in rutas_evidencias:
+        delete_physical_file(ruta)
+    for ruta in rutas_transcripciones:
+        delete_physical_file(ruta)
+
+    return True
