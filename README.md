@@ -1,8 +1,3 @@
-Sí. El problema principal es que tu bloque de **arquitectura no está cerrado correctamente**: abres un bloque ````text`, pero falta el ` ``` `antes de`---`. Además, en la última tabla tienes saltos de línea y backticks que rompen la sintaxis Markdown.
-
-Te dejo el `README.md` corregido y listo para copiar:
-
-````markdown
 # Smart Inspection — Backend API
 
 Backend del sistema web inteligente de inspecciones técnicas vehiculares e industriales. Desarrollado con FastAPI, SQLAlchemy y PostgreSQL, incorpora pipelines de inteligencia artificial local para extracción de texto (OCR con PaddleOCR y Tesseract), transcripción de voz (Whisper), asistencia en redacción de informes técnicos (LLaMA 3 vía Ollama y LangChain), importación de reportes DOCX históricos y medición automatizada de productividad operativa.
