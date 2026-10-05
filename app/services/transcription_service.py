@@ -1,10 +1,13 @@
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
 from app.db.models import Inspection, Evidence, Transcription
 from app.schemas.transcription import TranscriptionCreate, TranscriptionUpdate
+from app.services.storage_service import delete_physical_file
+
+from app.core.carbon import track_ai_emissions
 
 
 def _resolve_audio_path(file_path: str) -> Path:
@@ -41,12 +44,14 @@ def _transcribe_with_whisper(audio_path: Path, model_name: str = "base", languag
             "La librería openai-whisper no está instalada. Ejecuta: pip install openai-whisper"
         ) from exc
 
-    model = whisper.load_model(model_name)
-    result = model.transcribe(str(audio_path), language=language, fp16=False)
+    with track_ai_emissions(task_name="whisper_transcription"):
+        model = whisper.load_model(model_name)
+        result = model.transcribe(str(audio_path), language=language, fp16=False)
 
     text = (result.get("text") or "").strip()
     confidence = _mock_confidence(text)
     return text, confidence
+
 
 
 def create_and_process_transcription(db: Session, payload: TranscriptionCreate) -> Transcription:
@@ -82,8 +87,12 @@ def create_and_process_transcription(db: Session, payload: TranscriptionCreate) 
     )
 
     db.add(transcription)
-    db.commit()
-    db.refresh(transcription)
+    try:
+        db.commit()
+        db.refresh(transcription)
+    except Exception:
+        db.rollback()
+        raise
     return transcription
 
 
@@ -111,9 +120,39 @@ def update_transcription_text(
 
     transcription.final_text = payload.final_text
     transcription.edited_manually = True
-    transcription.updated_at = datetime.utcnow()
+    transcription.updated_at = datetime.now(timezone.utc)
 
     db.add(transcription)
-    db.commit()
-    db.refresh(transcription)
+    try:
+        db.commit()
+        db.refresh(transcription)
+    except Exception:
+        db.rollback()
+        raise
     return transcription
+
+
+def eliminar_transcripcion(db: Session, transcription_id: int) -> bool:
+    """
+    Elimina la transcripción y su archivo de audio físico del disco.
+    Retorna True si fue eliminada, False si no existía.
+    """
+    transcription = get_transcription_by_id(db, transcription_id)
+    if not transcription:
+        return False
+
+    source_path = transcription.source_file_path
+    try:
+        db.delete(transcription)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    delete_physical_file(source_path)
+    return True
+
+def process_audio_transcription(audio_path: str) -> str:
+    """Función de compatibilidad para transcribir un archivo de audio."""
+    text, _ = _transcribe_with_whisper(Path(audio_path))
+    return text

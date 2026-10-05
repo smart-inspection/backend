@@ -5,6 +5,14 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.db.models import ReportDraft, ReportStatusLog
+from app.db.models.users import User
+
+from app.services.inspection_service import (
+    assert_inspector_access,
+    get_inspection_by_id,
+    update_inspection_status,
+)
+from app.services.productivity_service import sync_productivity_from_inspection_status
 
 REPORT_STATUS_DRAFT = "draft"
 REPORT_STATUS_IN_REVIEW = "in_review"
@@ -18,12 +26,22 @@ VALID_STATUSES = {
     REPORT_STATUS_FINALIZED,
 }
 
-ALLOWED_TRANSITIONS = {
-    REPORT_STATUS_DRAFT: {REPORT_STATUS_IN_REVIEW, REPORT_STATUS_OBSERVED},
-    REPORT_STATUS_IN_REVIEW: {REPORT_STATUS_OBSERVED, REPORT_STATUS_FINALIZED},
-    REPORT_STATUS_OBSERVED: {REPORT_STATUS_IN_REVIEW, REPORT_STATUS_FINALIZED},
-    REPORT_STATUS_FINALIZED: set(),
-}
+ROLE_ADMIN = "admin"
+ROLE_INSPECTOR = "inspector"
+
+FINALIZE_FORBIDDEN_DETAIL = (
+    "Solo un administrador puede aprobar y finalizar formalmente una inspección."
+)
+REOPEN_FORBIDDEN_DETAIL = (
+    "Solo un administrador puede reabrir una inspección finalizada."
+)
+STATUS_CHANGE_FORBIDDEN_DETAIL = (
+    "No tienes permisos para cambiar el estado de esta inspección."
+)
+REPORT_DRAFT_NOT_FOUND_DETAIL = (
+    "No se encontró un borrador de informe asociado a esta inspección. "
+    "Debe generar un borrador antes de gestionar su estado."
+)
 
 
 def _utcnow() -> datetime:
@@ -55,19 +73,54 @@ def get_report_or_404(db: Session, report_draft_id: int) -> ReportDraft:
     return report
 
 
-def validate_status_transition(current_status: str, new_status: str) -> None:
-    current = _normalize_status(current_status or REPORT_STATUS_DRAFT)
-    target = _normalize_status(new_status)
+def validate_role_status_transition(
+    current_status: str,
+    target_status: str,
+    actor_role: str,
+) -> None:
+    """Aplica la matriz de estados por rol.
 
-    if current == target:
+    - admin: control total (cierre y reapertura incluidos).
+    - inspector: solo draft, in_review y observed; no puede finalizar ni reabrir.
+    """
+    if actor_role == ROLE_ADMIN:
         return
 
-    allowed = ALLOWED_TRANSITIONS.get(current, set())
-    if target not in allowed:
+    if actor_role == ROLE_INSPECTOR:
+        if target_status == REPORT_STATUS_FINALIZED:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=FINALIZE_FORBIDDEN_DETAIL,
+            )
+        if current_status == REPORT_STATUS_FINALIZED:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=REOPEN_FORBIDDEN_DETAIL,
+            )
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=STATUS_CHANGE_FORBIDDEN_DETAIL,
+    )
+
+
+def get_latest_report_for_inspection(
+    db: Session,
+    inspection_id: int,
+) -> ReportDraft:
+    report = (
+        db.query(ReportDraft)
+        .filter(ReportDraft.inspection_id == inspection_id)
+        .order_by(ReportDraft.created_at.desc(), ReportDraft.id.desc())
+        .first()
+    )
+    if not report:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid status transition: {current} -> {target}",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=REPORT_DRAFT_NOT_FOUND_DETAIL,
         )
+    return report
 
 
 def register_report_event(
@@ -99,46 +152,97 @@ def register_report_event(
     return log
 
 
-def change_report_status(
+def _apply_status_transition(
     db: Session,
-    report_draft_id: int,
+    report: ReportDraft,
     new_status: str,
-    actor_user_id: int | None = None,
-    actor_name: str | None = None,
+    actor: User,
     notes: str | None = None,
 ) -> ReportDraft:
-    report = get_report_or_404(db, report_draft_id)
-
     current_status = (report.status or REPORT_STATUS_DRAFT).strip().lower()
     if current_status not in VALID_STATUSES:
         current_status = REPORT_STATUS_DRAFT
 
     target_status = _normalize_status(new_status)
 
-    validate_status_transition(current_status, target_status)
+    validate_role_status_transition(current_status, target_status, actor.role)
 
     if current_status != target_status:
         report.status = target_status
         report.status_updated_at = _utcnow()
-        report.status_updated_by = actor_user_id
+        report.status_updated_by = actor.id
         report.last_action = "status_changed"
 
         register_report_event(
             db=db,
             report_draft=report,
             action="status_changed",
-            actor_user_id=actor_user_id,
-            actor_name=actor_name,
+            actor_user_id=actor.id,
+            actor_name=actor.full_name,
             from_status=current_status,
             to_status=target_status,
             notes=notes,
-            metadata_json={"reason": "manual_status_update"},
+            metadata_json={
+                "reason": "manual_status_update",
+                "actor_role": actor.role,
+            },
+        )
+
+        update_inspection_status(
+            db=db,
+            inspection_id=report.inspection_id,
+            new_status=target_status,
+        )
+
+        sync_productivity_from_inspection_status(
+            db=db,
+            inspection_id=report.inspection_id,
+            reset_finished_at=current_status == REPORT_STATUS_FINALIZED,
         )
 
     db.add(report)
     db.commit()
     db.refresh(report)
     return report
+
+
+def change_report_status(
+    db: Session,
+    report_draft_id: int,
+    new_status: str,
+    actor: User,
+    notes: str | None = None,
+) -> ReportDraft:
+    report = get_report_or_404(db, report_draft_id)
+
+    inspection = get_inspection_by_id(db, report.inspection_id)
+    if inspection:
+        assert_inspector_access(inspection, actor)
+
+    return _apply_status_transition(db, report, new_status, actor, notes)
+
+
+def transition_inspection_status(
+    db: Session,
+    inspection_id: int,
+    to_status: str,
+    actor: User,
+    notes: str | None = None,
+) -> tuple[ReportDraft, str]:
+    inspection = get_inspection_by_id(db, inspection_id)
+    if not inspection:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Inspection not found",
+        )
+
+    assert_inspector_access(inspection, actor)
+
+    report = get_latest_report_for_inspection(db, inspection_id)
+    previous_status = (report.status or REPORT_STATUS_DRAFT).strip().lower()
+
+    updated_report = _apply_status_transition(db, report, to_status, actor, notes)
+    return updated_report, previous_status
 
 
 def list_report_history(

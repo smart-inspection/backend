@@ -6,3 +6,9 @@
 /exports/
 /output/reports/
 /app/templates/
+/scripts/
+/.pytest_cache/
+/docs/
+app/api/routes/__pycache__/
+/metrics/
+

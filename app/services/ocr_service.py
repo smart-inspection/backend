@@ -1,201 +1,153 @@
+"""
+Servicio OCR — orquesta preprocesamiento, extracción y persistencia.
+
+Delega la normalización de imagen a ``app.integrations.ocr.preprocessing``
+y la inferencia PaddleOCR a ``app.integrations.ocr.paddle_adapter``.
+"""
+
+import gc
+import logging
 import os
 
-os.environ["PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT"] = "0"
+os.environ["PADDLE_PDX_DISABLE_MKLDNN"] = "1"
 os.environ["FLAGS_use_mkldnn"] = "0"
+os.environ["FLAGS_use_onednn"] = "0"
+os.environ["FLAGS_enable_pir_api"] = "0"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
 
+from datetime import datetime, timezone
 from pathlib import Path
-from datetime import datetime
 
-from PIL import Image, ImageOps, ImageFilter
+from PIL import UnidentifiedImageError
 from sqlalchemy.orm import Session
 
 from app.db.models import Evidence
+from app.integrations.ocr.paddle_adapter import (
+    collect_texts_and_scores,
+    extract_with_paddle,
+    get_paddle_engine,
+)
+from app.integrations.ocr.preprocessing import (
+    normalize_and_save,
+    validate_image_integrity,
+)
 
-try:
-    from paddleocr import PaddleOCR
-except ImportError:
-    PaddleOCR = None
+from app.core.carbon import track_ai_emissions
 
-_PADDLE_OCR = None
+logger = logging.getLogger(__name__)
 
-def _get_ocr_engine() -> PaddleOCR:
-    global _PADDLE_OCR
 
-    if PaddleOCR is None:
-        raise RuntimeError(
-            "PaddleOCR no está instalado correctamente en el entorno virtual."
-        )
+# ── Re-exportaciones (compatibilidad con validation_service) ──
+# validation_service.py importa: extract_text_from_evidence_record
+# ocr.py importa:               extract_text_from_evidence
+# Ambas funciones se mantienen aquí con la misma firma.
 
-    if _PADDLE_OCR is None:
-        _PADDLE_OCR = PaddleOCR(
-            use_doc_orientation_classify=False,
-            use_doc_unwarping=False,
-            use_textline_orientation=False,
-            engine="paddle",
-        )
 
-    return _PADDLE_OCR
+# ── Utilidades ────────────────────────────────────────────────
 
-def _resolve_file_path(file_path: str) -> Path:
-    raw = Path(file_path)
+def resolve_file_path(file_path: str) -> Path:
+    """Resuelve la ruta absoluta de un archivo de evidencia."""
+    raw_path = Path(file_path)
+
     candidates = [
-        raw,
-        Path.cwd() / file_path.lstrip("/\\"),
-        Path.cwd() / "uploads" / file_path.lstrip("/\\").replace("uploads/", "").replace("uploads\\", ""),
+        raw_path,
+        Path.cwd() / file_path.lstrip("/"),
+        Path.cwd()
+        / "uploads"
+        / file_path.lstrip("/").replace("uploads/", "").replace("uploads\\", ""),
     ]
 
     for candidate in candidates:
         if candidate.exists():
             return candidate.resolve()
 
-    raise FileNotFoundError(f"Archivo no encontrado para OCR: {file_path}")
-
-def _preprocess_image(image_path: Path) -> Path:
-    image = Image.open(image_path)
-    image = ImageOps.exif_transpose(image)
-    image = image.convert("RGB")
-
-    gray = ImageOps.grayscale(image)
-    gray = ImageOps.autocontrast(gray)
-    gray = gray.filter(ImageFilter.SHARPEN)
-
-    enlarged = gray.resize((gray.width * 3, gray.height * 3))
-    processed_path = image_path.with_name(f"{image_path.stem}_paddle_preprocessed.png")
-    enlarged.save(processed_path)
-
-    return processed_path
-
-def _extract_text_and_confidence(image_path: Path) -> tuple[str, float | None]:
-    ocr = _get_ocr_engine()
-    results = list(ocr.predict(str(image_path)))
-
-    for i, res in enumerate(results):
-        try:
-            print(f"[PADDLE DEBUG] result #{i} type={type(res)}")
-            if hasattr(res, "print"):
-                res.print()
-            if hasattr(res, "save_to_json"):
-                res.save_to_json("output")
-        except Exception as e:
-            print(f"[PADDLE DEBUG] error printing result: {e}")
-
-    lines: list[str] = []
-    confidences: list[float] = []
-
-    for res in results:
-        data = None
-
-        if hasattr(res, "json"):
-            try:
-                print("[PADDLE DEBUG] json =", res.json)
-            except Exception:
-                pass
-
-        if isinstance(res, dict):
-            data = res.get("res", res)
-        elif hasattr(res, "res"):
-            data = getattr(res, "res")
-        else:
-            data = None
-
-        if isinstance(data, dict):
-            if "rec_texts" in data:
-                for text in data.get("rec_texts", []) or []:
-                    text = str(text).strip()
-                    if text:
-                        lines.append(text)
-
-                for score in data.get("rec_scores", []) or []:
-                    try:
-                        confidences.append(float(score) * 100)
-                    except Exception:
-                        pass
-
-            elif "rec_text" in data:
-                text = str(data.get("rec_text", "")).strip()
-                score = data.get("rec_score")
-                if text:
-                    lines.append(text)
-                if score is not None:
-                    try:
-                        confidences.append(float(score) * 100)
-                    except Exception:
-                        pass
-
-    extracted_text = "\n".join(lines).strip()
-    avg_conf = round(sum(confidences) / len(confidences), 2) if confidences else None
-    return extracted_text, avg_conf
-
-def _collect_texts_and_scores(node, texts, scores):
-    if node is None:
-        return
-
-    if isinstance(node, dict):
-        if "rec_texts" in node and isinstance(node.get("rec_texts"), (list, tuple)):
-            for text in node.get("rec_texts") or []:
-                text = str(text).strip()
-                if text:
-                    texts.append(text)
-
-        if "rec_scores" in node and isinstance(node.get("rec_scores"), (list, tuple)):
-            for score in node.get("rec_scores") or []:
-                try:
-                    scores.append(float(score) * 100)
-                except Exception:
-                    pass
-
-        if "rec_text" in node:
-            text = str(node.get("rec_text", "")).strip()
-            if text:
-                texts.append(text)
-
-        if "rec_score" in node:
-            try:
-                scores.append(float(node.get("rec_score")) * 100)
-            except Exception:
-                pass
-
-        for value in node.values():
-            _collect_texts_and_scores(value, texts, scores)
-
-    elif isinstance(node, (list, tuple)):
-        for item in node:
-            _collect_texts_and_scores(item, texts, scores)
+    raise FileNotFoundError(f"archivo no encontrado para OCR: {file_path}")
 
 
-def _extract_text_and_confidence(image_path: Path) -> tuple[str, float | None]:
-    ocr = _get_ocr_engine()
-    results = list(ocr.predict(str(image_path)))
+# ── Preprocesamiento ─────────────────────────────────────────
 
-    texts: list[str] = []
-    scores: list[float] = []
+def preprocess_image(image_path: Path) -> Path:
+    """Normaliza la imagen (EXIF, RGB, downscale a 1920 px, sharpen)
+    y la guarda como archivo temporal ``*_paddle_preprocessed.png``.
 
-    for res in results:
-        if isinstance(res, dict):
-            payload = res
-        elif hasattr(res, "res"):
-            payload = res.res
-        else:
-            payload = None
+    Delega al pipeline centralizado en ``preprocessing.py``.
+    """
+    return normalize_and_save(
+        image_path,
+        max_side=1920,
+        suffix="_paddle_preprocessed.png",
+    )
 
-        _collect_texts_and_scores(payload, texts, scores)
 
-    extracted_text = "\n".join(dict.fromkeys(t for t in texts if t)).strip()
-    confidence = round(sum(scores) / len(scores), 2) if scores else None
-    return extracted_text, confidence
+# ── Extracción ────────────────────────────────────────────────
+
+def extract_text_and_confidence(image_path: Path) -> tuple[str, float | None]:
+    """Ejecuta PaddleOCR sobre la imagen preprocesada.
+
+    Delega al adaptador optimizado en ``paddle_adapter.py``.
+    """
+    with track_ai_emissions(task_name="ocr_processing"):
+        return extract_with_paddle(image_path)
+
+
+
+# ── Orquestación sobre Evidence ──────────────────────────────
 
 def extract_text_from_evidence_record(db: Session, evidence: Evidence) -> dict:
-    if not evidence.file_type.lower().startswith("image/"):
-        raise ValueError("Solo se permite OCR sobre evidencias de imagen")
+    """Procesa OCR sobre un registro de evidencia existente.
 
-    image_path = _resolve_file_path(evidence.file_path)
-    processed_path = _preprocess_image(image_path)
-    extracted_text, confidence = _extract_text_and_confidence(processed_path)
+    Pipeline:
+    1. Validar integridad del archivo.
+    2. Preprocesar (normalizar, downscale).
+    3. Ejecutar PaddleOCR.
+    4. Persistir resultados en el registro ORM.
+    5. Limpiar archivo preprocesado temporal.
+    """
+    if not evidence.file_type.lower().startswith("image"):
+        raise ValueError("solo se permite OCR sobre evidencias de imagen")
 
+    image_path = resolve_file_path(evidence.file_path)
+    processed_path: Path | None = None
+
+    try:
+        # 1. Validar integridad
+        validate_image_integrity(image_path)
+
+        # 2. Preprocesar
+        processed_path = preprocess_image(image_path)
+
+        # 3. Extraer texto
+        extracted_text, confidence = extract_text_and_confidence(processed_path)
+
+    except UnidentifiedImageError:
+        logger.warning(
+            "Imagen corrupta o no reconocida (evidence_id=%s): %s",
+            evidence.id, image_path,
+        )
+        extracted_text = ""
+        confidence = 0.0
+    except (OSError, RuntimeError) as exc:
+        logger.error(
+            "Error procesando OCR (evidence_id=%s): %s",
+            evidence.id, exc,
+        )
+        extracted_text = ""
+        confidence = 0.0
+    finally:
+        # 5. Limpiar archivo temporal
+        if processed_path and processed_path.exists():
+            try:
+                processed_path.unlink()
+            except OSError:
+                pass
+        gc.collect()
+
+    # 4. Persistir resultados
     evidence.ocr_extracted_text = extracted_text
     evidence.ocr_confidence = confidence
     evidence.ocr_processed = True
-    evidence.ocr_last_processed_at = datetime.utcnow()
+    evidence.ocr_last_processed_at = datetime.now(timezone.utc)
 
     db.add(evidence)
     db.commit()
@@ -209,9 +161,16 @@ def extract_text_from_evidence_record(db: Session, evidence: Evidence) -> dict:
         "confidence": float(evidence.ocr_confidence) if evidence.ocr_confidence is not None else None,
     }
 
+
 def extract_text_from_evidence(db: Session, evidence_id: int) -> dict | None:
+    """Busca la evidencia por ID y delega al pipeline OCR completo."""
     evidence = db.query(Evidence).filter(Evidence.id == evidence_id).first()
     if not evidence:
         return None
 
     return extract_text_from_evidence_record(db, evidence)
+
+def process_evidence_ocr(evidence_id: int, image_path: str) -> str:
+    """Función de compatibilidad para procesar OCR sobre una ruta de imagen."""
+    text, _ = extract_text_and_confidence(Path(image_path))
+    return text

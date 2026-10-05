@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     app_name: str = "Smart Inspection API"
     app_env: str = "dev"
     debug: bool = True
+
     api_v1_prefix: str = "/api/v1"
     database_url: str
 
@@ -14,6 +15,15 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3"
     llm_temperature: float = 0.2
     llm_timeout: int = 120
+
+    secret_key: str = "c28b524c-400b-4ca0-aff9-f6d0ebd1cb92"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60 * 8
+
+    paddle_max_image_width: int = 1920
+    paddle_max_image_height: int = 1920
+
+    field_encryption_key: str = "0uTJNMRhtt54hP6b1YvDYRKlbnfbhIoVovYae_rz1uE="
 
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",

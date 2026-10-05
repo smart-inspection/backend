@@ -7,6 +7,12 @@ class ReportStatusUpdateRequest(BaseModel):
     status: str = Field(..., examples=["in_review"])
     notes: str | None = None
 
+
+class StatusTransitionRequest(BaseModel):
+    to_status: str = Field(..., examples=["in_review"])
+    notes: str | None = Field(default=None, max_length=5000)
+
+
 class ReportStatusResponse(BaseModel):
     report_draft_id: int
     status: str
@@ -15,6 +21,12 @@ class ReportStatusResponse(BaseModel):
     last_action: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+class StatusTransitionResponse(ReportStatusResponse):
+    inspection_id: int
+    from_status: str | None = None
+    operational_status: str | None = None
+
 
 class ReportStatusLogResponse(BaseModel):
     id: int
