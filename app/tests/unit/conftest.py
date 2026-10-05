@@ -13,6 +13,8 @@ if str(base_dir) not in sys.path:
 
 from app.main import app
 from app.db.base import Base
+from app.core.dependencies import get_current_user
+from app.db.models.users import User
 
 from app.api.routes.inspections import get_db as inspections_get_db
 from app.api.routes.productivity import get_db as productivity_get_db
@@ -50,6 +52,25 @@ def override_get_db():
         db.close()
 
 
+def build_stub_user(role: str = "admin", user_id: int = 9999) -> User:
+    return User(
+        id=user_id,
+        full_name=f"{role}_stub",
+        email=f"{role}_stub@test.local",
+        password_hash="x",
+        role=role,
+        is_active=True,
+    )
+
+
+@pytest.fixture(scope="function")
+def auth_as(client):
+    def _auth_as(user: User) -> None:
+        app.dependency_overrides[get_current_user] = lambda: user
+
+    return _auth_as
+
+
 @pytest.fixture(scope="function")
 def db_session(client):
     db = db_session_factory()
@@ -76,6 +97,7 @@ def client():
     app.dependency_overrides[reportstatus_get_db] = override_get_db
     app.dependency_overrides[inspectionenrichment_get_db] = override_get_db
     app.dependency_overrides[inspectionrequests_get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: build_stub_user()
 
     with TestClient(app) as test_client:
         yield test_client

@@ -7,6 +7,8 @@ from app.db.models import Inspection, Evidence, Transcription
 from app.schemas.transcription import TranscriptionCreate, TranscriptionUpdate
 from app.services.storage_service import delete_physical_file
 
+from app.core.carbon import track_ai_emissions
+
 
 def _resolve_audio_path(file_path: str) -> Path:
     raw = Path(file_path)
@@ -42,12 +44,14 @@ def _transcribe_with_whisper(audio_path: Path, model_name: str = "base", languag
             "La librería openai-whisper no está instalada. Ejecuta: pip install openai-whisper"
         ) from exc
 
-    model = whisper.load_model(model_name)
-    result = model.transcribe(str(audio_path), language=language, fp16=False)
+    with track_ai_emissions(task_name="whisper_transcription"):
+        model = whisper.load_model(model_name)
+        result = model.transcribe(str(audio_path), language=language, fp16=False)
 
     text = (result.get("text") or "").strip()
     confidence = _mock_confidence(text)
     return text, confidence
+
 
 
 def create_and_process_transcription(db: Session, payload: TranscriptionCreate) -> Transcription:
@@ -147,3 +151,8 @@ def eliminar_transcripcion(db: Session, transcription_id: int) -> bool:
 
     delete_physical_file(source_path)
     return True
+
+def process_audio_transcription(audio_path: str) -> str:
+    """Función de compatibilidad para transcribir un archivo de audio."""
+    text, _ = _transcribe_with_whisper(Path(audio_path))
+    return text

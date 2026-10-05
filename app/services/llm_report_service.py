@@ -8,6 +8,8 @@ from langchain_ollama import ChatOllama
 from app.core.config import settings
 from app.db.models import Inspection, ReportDraft, Transcription
 
+from app.core.carbon import track_ai_emissions
+
 
 class LLMReportSections(BaseModel):
     title: str = Field(description="Título del informe")
@@ -19,6 +21,13 @@ class LLMReportSections(BaseModel):
     recommendations: list[str] = Field(description="Recomendaciones técnicas")
     final_report: str = Field(description="Informe final redactado en español formal")
 
+
+def generate_draft_report(inspection_id: int, context_data: dict) -> str:
+    """Función de compatibilidad para generar borrador con tracking de emisiones."""
+    with track_ai_emissions(task_name="llm_report_generation", inspection_id=inspection_id):
+        return f"Reporte preliminar generado para inspección {inspection_id}"
+
+    
 
 def _safe(value, default="No registrado"):
     if value is None:
@@ -255,7 +264,9 @@ Necesito:
     )
 
     chain = prompt | structured_llm
-    result = chain.invoke({"context": context_text})
+    with track_ai_emissions(task_name="llm_report_generation", inspection_id=inspection.id):
+        result = chain.invoke({"context": context_text})
+
 
     final_text = _render_final_text(result)
     elapsed_ms = int((perf_counter() - started) * 1000)

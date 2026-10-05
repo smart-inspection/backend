@@ -1,0 +1,29 @@
+# Entornos virtuales
+.venv
+venv
+
+# Bytecode y cachés de Python
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+
+# Control de versiones
+.git
+.gitignore
+
+# Pruebas y cobertura
+.pytest_cache
+.coverage
+htmlcov
+tests/
+**/tests/
+
+# Archivos subidos (se conserva solo .gitkeep)
+uploads/*
+!uploads/.gitkeep
+
+# Variables de entorno locales
+.env
+.env.*
+**/.env

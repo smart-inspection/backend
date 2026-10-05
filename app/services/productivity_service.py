@@ -517,6 +517,7 @@ def get_productivity_dashboard(
 def sync_productivity_from_inspection_status(
     db: Session,
     inspection_id: int,
+    reset_finished_at: bool = False,
 ) -> InspectionProductivity | None:
     inspection = _get_inspection(db, inspection_id)
     if not inspection:
@@ -533,6 +534,9 @@ def sync_productivity_from_inspection_status(
 
     if normalized_status in {"in_review", "observed", "finalized"} and productivity.report_started_at is None:
         productivity.report_started_at = now
+
+    if reset_finished_at and normalized_status != "finalized":
+        productivity.report_finished_at = None
 
     if normalized_status == "finalized" and productivity.report_finished_at is None:
         productivity.report_finished_at = now

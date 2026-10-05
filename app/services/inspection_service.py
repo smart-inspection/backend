@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 
+from fastapi import HTTPException, status
 from sqlalchemy.orm import Session, selectinload
 
 from app.db.models import Inspection, InspectionProductivity, User
@@ -9,6 +10,22 @@ from app.schemas.inspection import InspectionCreate
 from app.services.storage_service import delete_physical_file
 
 VALID_INSPECTION_STATUSES = {"draft", "in_review", "observed", "finalized"}
+
+INSPECTION_ACCESS_DENIED_DETAIL = (
+    "No tienes autorización para acceder o modificar esta inspección."
+)
+
+
+def assert_inspector_access(inspection: Inspection, current_user: User) -> None:
+    """Un inspector solo puede operar sobre inspecciones que tiene asignadas."""
+    if (
+        current_user.role == "inspector"
+        and inspection.responsible_inspector_id != current_user.id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=INSPECTION_ACCESS_DENIED_DETAIL,
+        )
 
 
 def _resolve_inspector_name(user: User | None) -> str | None:
@@ -78,13 +95,20 @@ def create_inspection(db: Session, payload: InspectionCreate) -> Inspection:
     return inspection
 
 
-def list_inspections(db: Session) -> list[Inspection]:
-    return (
-        db.query(Inspection)
-        .options(selectinload(Inspection.responsible_inspector))
-        .order_by(Inspection.id.desc())
-        .all()
+def list_inspections(
+    db: Session,
+    current_user: User | None = None,
+) -> list[Inspection]:
+    query = db.query(Inspection).options(
+        selectinload(Inspection.responsible_inspector)
     )
+
+    if current_user is not None and current_user.role == "inspector":
+        query = query.filter(
+            Inspection.responsible_inspector_id == current_user.id
+        )
+
+    return query.order_by(Inspection.id.desc()).all()
 
 
 def get_inspection_by_id(db: Session, inspection_id: int) -> Inspection | None:

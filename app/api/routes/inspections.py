@@ -5,6 +5,7 @@ from app.core.dependencies import get_db, solo_admin, tecnico, todos
 from app.db.models.users import User
 from app.schemas.inspection import InspectionCreate, InspectionResponse
 from app.services.inspection_service import (
+    assert_inspector_access,
     create_inspection,
     eliminar_inspection,
     get_inspection_by_id,
@@ -28,20 +29,21 @@ def create_inspection_endpoint(
 @router.get("", response_model=list[InspectionResponse])
 def list_inspections_endpoint(
     db: Session = Depends(get_db),
-    _: User = Depends(todos),
+    current_user: User = Depends(todos),
 ):
-    return list_inspections(db)
+    return list_inspections(db, current_user=current_user)
 
 
 @router.get("/{inspection_id}", response_model=InspectionResponse)
 def get_inspection_endpoint(
     inspection_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(todos),
+    current_user: User = Depends(todos),
 ):
     inspection = get_inspection_by_id(db, inspection_id)
     if not inspection:
         raise HTTPException(status_code=404, detail="Inspection not found")
+    assert_inspector_access(inspection, current_user)
     return inspection
 
 
