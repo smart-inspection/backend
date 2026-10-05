@@ -26,7 +26,9 @@ from app.api.routes.report_draft import get_db as reportdraft_get_db
 from app.api.routes.report_export import get_db as reportexport_get_db
 from app.api.routes.report_status import get_db as reportstatus_get_db
 from app.api.routes.transcription import get_db as transcription_get_db
+from app.core.dependencies import get_current_user
 from app.db.base import Base
+from app.db.models.users import User
 from app.main import app
 
 
@@ -100,6 +102,14 @@ def client(monkeypatch, tmp_path):
     app.dependency_overrides[inspectionenrichment_get_db] = override_get_db
     app.dependency_overrides[productivity_get_db] = override_get_db
     app.dependency_overrides[inspectionrequests_get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id=9999,
+        full_name="admin_stub",
+        email="admin_stub@test.local",
+        password_hash="x",
+        role="admin",
+        is_active=True,
+    )
 
     with TestClient(app) as test_client:
         yield test_client

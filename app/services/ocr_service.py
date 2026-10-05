@@ -33,6 +33,8 @@ from app.integrations.ocr.preprocessing import (
     validate_image_integrity,
 )
 
+from app.core.carbon import track_ai_emissions
+
 logger = logging.getLogger(__name__)
 
 
@@ -85,7 +87,9 @@ def extract_text_and_confidence(image_path: Path) -> tuple[str, float | None]:
 
     Delega al adaptador optimizado en ``paddle_adapter.py``.
     """
-    return extract_with_paddle(image_path)
+    with track_ai_emissions(task_name="ocr_processing"):
+        return extract_with_paddle(image_path)
+
 
 
 # ── Orquestación sobre Evidence ──────────────────────────────
@@ -165,3 +169,8 @@ def extract_text_from_evidence(db: Session, evidence_id: int) -> dict | None:
         return None
 
     return extract_text_from_evidence_record(db, evidence)
+
+def process_evidence_ocr(evidence_id: int, image_path: str) -> str:
+    """Función de compatibilidad para procesar OCR sobre una ruta de imagen."""
+    text, _ = extract_text_and_confidence(Path(image_path))
+    return text

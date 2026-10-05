@@ -7,14 +7,19 @@ from app.schemas.report_status import (
     ReportStatusLogResponse,
     ReportStatusResponse,
     ReportStatusUpdateRequest,
+    StatusTransitionRequest,
+    StatusTransitionResponse,
 )
+from app.services.productivity_service import get_productivity_by_inspection
 from app.services.report_status_service import (
     change_report_status,
     get_report_or_404,
     list_report_history,
+    transition_inspection_status,
 )
 
 router = APIRouter(prefix="/reports", tags=["report-status"])
+inspection_status_router = APIRouter(prefix="/inspections", tags=["report-status"])
 
 @router.get("/{report_draft_id}/status", response_model=ReportStatusResponse)
 def get_status(
@@ -37,15 +42,14 @@ def update_status(
     report_draft_id: int,
     payload: ReportStatusUpdateRequest,
     db: Session = Depends(get_db),
-    _: User = Depends(tecnico),
+    current_user: User = Depends(tecnico),
 ):
     report = change_report_status(
         db=db,
         report_draft_id=report_draft_id,
         new_status=payload.status,
+        actor=current_user,
         notes=payload.notes,
-        actor_user_id=None,
-        actor_name="system",
     )
     return ReportStatusResponse(
         report_draft_id=report.id,
@@ -53,6 +57,36 @@ def update_status(
         status_updated_at=report.status_updated_at,
         status_updated_by=report.status_updated_by,
         last_action=report.last_action,
+    )
+
+
+@inspection_status_router.post(
+    "/{inspection_id}/status-transition",
+    response_model=StatusTransitionResponse,
+)
+def transition_status(
+    inspection_id: int,
+    payload: StatusTransitionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(tecnico),
+):
+    updated_report, previous_status = transition_inspection_status(
+        db=db,
+        inspection_id=inspection_id,
+        to_status=payload.to_status,
+        actor=current_user,
+        notes=payload.notes,
+    )
+    productivity = get_productivity_by_inspection(db, inspection_id)
+    return StatusTransitionResponse(
+        inspection_id=inspection_id,
+        report_draft_id=updated_report.id,
+        from_status=previous_status,
+        status=updated_report.status,
+        status_updated_at=updated_report.status_updated_at,
+        status_updated_by=updated_report.status_updated_by,
+        last_action=updated_report.last_action,
+        operational_status=productivity.operational_status if productivity else None,
     )
 
 

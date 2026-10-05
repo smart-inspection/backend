@@ -22,3 +22,4 @@ paddleocr
 paddlepaddle
 pytest==8.3.5
 pytest-html==4.1.1
+codecarbon>=2.3.0
