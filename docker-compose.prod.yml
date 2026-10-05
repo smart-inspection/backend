@@ -1,0 +1,50 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: smart_inspect_db
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-smart_inspect_prod}
+      POSTGRES_USER: ${POSTGRES_USER:-smart_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-smart_admin} -d ${POSTGRES_DB:-smart_inspect_prod}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: smart_inspect_backend
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env.production
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-smart_admin}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-smart_inspect_prod}
+    volumes:
+      - ./uploads:/app/uploads
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks:
+      - internal_net
+      - host_net
+
+networks:
+  internal_net:
+    driver: bridge
+  host_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
