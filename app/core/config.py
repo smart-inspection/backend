@@ -11,10 +11,10 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     database_url: str
 
-    ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "llama3"
+    groq_api_key: str = ""
+    groq_llm_model: str = "openai/gpt-oss-120b"
+    groq_whisper_model: str = "whisper-large-v3-turbo"
     llm_temperature: float = 0.2
-    llm_timeout: int = 120
 
     secret_key: str = "c28b524c-400b-4ca0-aff9-f6d0ebd1cb92"
     jwt_algorithm: str = "HS256"
