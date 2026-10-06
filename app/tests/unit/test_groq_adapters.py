@@ -148,3 +148,60 @@ def test_asr_groq_error_becomes_sanitized_runtime_error(tmp_path: Path):
         _asr_with_client(client).transcribe(audio)
 
     assert "groq" not in str(exc_info.value).lower()
+
+
+from app.integrations.ocr.groq_vision_adapter import GroqVisionAdapter
+
+
+def _vision_with_client(client: MagicMock) -> GroqVisionAdapter:
+    adapter = GroqVisionAdapter(api_key="test-key", model_name="vision-test")
+    adapter._client = client
+    return adapter
+
+
+def test_vision_extract_text_nominal(tmp_path: Path):
+    image = tmp_path / "sample.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\n...")
+    client = MagicMock()
+    client.chat.completions.create.return_value = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content="PLACA ABC-123"))]
+    )
+
+    result = _vision_with_client(client).extract_text(image)
+
+    assert result["text"] == "PLACA ABC-123"
+    assert result["raw_text"] == "PLACA ABC-123"
+    assert result["confidence"] == 0.95
+    assert result["engine"] == "groq_vision_qwen"
+
+
+def test_vision_extract_text_empty_returns_zero_confidence(tmp_path: Path):
+    image = tmp_path / "sample.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\n...")
+    client = MagicMock()
+    client.chat.completions.create.return_value = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=""))]
+    )
+
+    result = _vision_with_client(client).extract_text(image)
+
+    assert result["text"] == ""
+    assert result["confidence"] == 0.0
+
+
+def test_vision_missing_file_raises_file_not_found(tmp_path: Path):
+    with pytest.raises(FileNotFoundError):
+        _vision_with_client(MagicMock()).extract_text(tmp_path / "no_existe.png")
+
+
+def test_vision_groq_error_becomes_sanitized_runtime_error(tmp_path: Path):
+    image = tmp_path / "sample.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\n...")
+    client = MagicMock()
+    client.chat.completions.create.side_effect = BadRequestError(
+        "invalid", response=_http_response(400), body=None
+    )
+
+    with pytest.raises(RuntimeError):
+        _vision_with_client(client).extract_text(image)
+

@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_llm_model: str = "openai/gpt-oss-120b"
     groq_whisper_model: str = "whisper-large-v3-turbo"
+    groq_vision_model: str = "qwen/qwen3.8-27b"
     llm_temperature: float = 0.2
 
     secret_key: str = "c28b524c-400b-4ca0-aff9-f6d0ebd1cb92"
