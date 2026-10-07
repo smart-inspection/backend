@@ -13,7 +13,7 @@ if str(base_dir) not in sys.path:
 
 from app.main import app
 from app.db.base import Base
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, get_current_user_flexible
 from app.db.models.users import User
 
 from app.api.routes.inspections import get_db as inspections_get_db
@@ -67,6 +67,7 @@ def build_stub_user(role: str = "admin", user_id: int = 9999) -> User:
 def auth_as(client):
     def _auth_as(user: User) -> None:
         app.dependency_overrides[get_current_user] = lambda: user
+        app.dependency_overrides[get_current_user_flexible] = lambda: user
 
     return _auth_as
 
@@ -98,6 +99,7 @@ def client():
     app.dependency_overrides[inspectionenrichment_get_db] = override_get_db
     app.dependency_overrides[inspectionrequests_get_db] = override_get_db
     app.dependency_overrides[get_current_user] = lambda: build_stub_user()
+    app.dependency_overrides[get_current_user_flexible] = lambda: build_stub_user()
 
     with TestClient(app) as test_client:
         yield test_client
