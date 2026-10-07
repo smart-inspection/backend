@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from starlette.staticfiles import StaticFiles
 
 from app.core.config import settings
@@ -62,6 +62,17 @@ app = FastAPI(
     debug=settings.debug,
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def normalize_api_v1_path(request: Request, call_next):
+    path = request.scope.get("path", "")
+    prefix = settings.api_v1_prefix.rstrip("/")
+    if path.startswith(prefix) and not path.startswith(f"{prefix}/"):
+        normalized = f"{prefix}/{path[len(prefix):].lstrip('/')}"
+        request.scope["path"] = normalized
+        request.scope["raw_path"] = normalized.encode("latin-1")
+    return await call_next(request)
 
 
 Path("uploads").mkdir(parents=True, exist_ok=True)
