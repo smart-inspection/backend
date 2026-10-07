@@ -1,13 +1,11 @@
 import json
 from time import perf_counter
 
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_ollama import ChatOllama
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.config import settings
 from app.db.models import Inspection, Transcription, ReportDraft
+from app.integrations.llm.llama_adapter import llama_adapter
 from app.services.report_status_service import register_report_event
 
 class DraftSections(BaseModel):
@@ -301,13 +299,33 @@ def _build_snapshot(inspection, transcriptions) -> dict:
         "transcriptions": transcription_items,
     }
 
-def _get_llm() -> ChatOllama:
-    return ChatOllama(
-        model=settings.ollama_model,
-        base_url=settings.ollama_base_url,
-        temperature=settings.llm_temperature,
-        timeout=settings.llm_timeout,
-    )
+_DRAFT_SYSTEM_PROMPT = (
+    "Eres un ingeniero redactor de informes de inspección industrial. "
+    "Redacta en español técnico, claro y profesional. "
+    "No inventes datos. Si falta información, dilo de forma explícita. "
+    "Debes responder ajustándote exactamente al esquema estructurado solicitado. "
+    "No agregues datos no presentes en la inspección, OCR, evidencias o transcripciones. "
+    "Mantén consistencia técnica y terminología formal. "
+    "Ningún campo debe quedar vacío. "
+    "Si no hubiera suficiente sustento para recomendaciones, escribe exactamente: "
+    "'No se identifican recomendaciones técnicas adicionales con la información disponible.'. "
+    "Si faltara información para alguna otra sección, redacta una salida breve y explícita, "
+    "pero nunca devuelvas cadenas vacías."
+)
+
+_DRAFT_USER_PROMPT_TEMPLATE = (
+    "Versión de plantilla: {template_version}\n\n"
+    "DATOS GENERALES:\n{general_section}\n\n"
+    "CAMPOS CRÍTICOS:\n{critical_section}\n\n"
+    "DATOS CAPTURADOS:\n{fields_section}\n\n"
+    "EVIDENCIAS:\n{evidence_section}\n\n"
+    "VALIDACIÓN OCR:\n{ocr_section}\n\n"
+    "OBSERVACIONES TRANSCRITAS:\n{transcription_section}\n\n"
+    "CONCLUSIÓN DETERMINÍSTICA DE APOYO:\n{deterministic_conclusion}\n\n"
+    "SNAPSHOT JSON:\n{snapshot_json}"
+)
+
+_DRAFT_MAX_TOKENS = 4096
 
 def _generate_llama_sections(
     *,
@@ -321,57 +339,23 @@ def _generate_llama_sections(
     transcription_section: str,
     deterministic_conclusion: str,
 ) -> dict:
-    llm = _get_llm()
-    structured_llm = llm.with_structured_output(DraftSections)
-
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                (
-                    "Eres un ingeniero redactor de informes de inspección industrial. "
-                    "Redacta en español técnico, claro y profesional. "
-                    "No inventes datos. Si falta información, dilo de forma explícita. "
-                    "Debes responder ajustándote exactamente al esquema estructurado solicitado. "
-                    "No agregues datos no presentes en la inspección, OCR, evidencias o transcripciones. "
-                    "Mantén consistencia técnica y terminología formal. "
-                    "Ningún campo debe quedar vacío. "
-                    "Si no hubiera suficiente sustento para recomendaciones, escribe exactamente: "
-                    "'No se identifican recomendaciones técnicas adicionales con la información disponible.'. "
-                    "Si faltara información para alguna otra sección, redacta una salida breve y explícita, "
-                    "pero nunca devuelvas cadenas vacías."
-                ),
-            ),
-            (
-                "human",
-                (
-                    "Versión de plantilla: {template_version}\n\n"
-                    "DATOS GENERALES:\n{general_section}\n\n"
-                    "CAMPOS CRÍTICOS:\n{critical_section}\n\n"
-                    "DATOS CAPTURADOS:\n{fields_section}\n\n"
-                    "EVIDENCIAS:\n{evidence_section}\n\n"
-                    "VALIDACIÓN OCR:\n{ocr_section}\n\n"
-                    "OBSERVACIONES TRANSCRITAS:\n{transcription_section}\n\n"
-                    "CONCLUSIÓN DETERMINÍSTICA DE APOYO:\n{deterministic_conclusion}\n\n"
-                    "SNAPSHOT JSON:\n{snapshot_json}"
-                ),
-            ),
-        ]
+    user_prompt = _DRAFT_USER_PROMPT_TEMPLATE.format(
+        template_version=template_version,
+        general_section=general_section,
+        critical_section=critical_section,
+        fields_section=fields_section,
+        evidence_section=evidence_section,
+        ocr_section=ocr_section,
+        transcription_section=transcription_section,
+        deterministic_conclusion=deterministic_conclusion,
+        snapshot_json=json.dumps(snapshot, ensure_ascii=False, indent=2),
     )
 
-    chain = prompt | structured_llm
-    result = chain.invoke(
-        {
-            "template_version": template_version,
-            "general_section": general_section,
-            "critical_section": critical_section,
-            "fields_section": fields_section,
-            "evidence_section": evidence_section,
-            "ocr_section": ocr_section,
-            "transcription_section": transcription_section,
-            "deterministic_conclusion": deterministic_conclusion,
-            "snapshot_json": json.dumps(snapshot, ensure_ascii=False, indent=2),
-        }
+    result = llama_adapter.generate_structured(
+        user_prompt,
+        DraftSections,
+        system_prompt=_DRAFT_SYSTEM_PROMPT,
+        max_tokens=_DRAFT_MAX_TOKENS,
     )
 
     normalized = {
@@ -411,10 +395,9 @@ def _render_template(inspection, transcriptions, template_version: str) -> tuple
     )
 
     snapshot["llm"] = {
-        "provider": "ollama",
-        "model": settings.ollama_model,
-        "base_url": settings.ollama_base_url,
-        "temperature": settings.llm_temperature,
+        "provider": "groq",
+        "model": llama_adapter.model_name,
+        "temperature": llama_adapter.temperature,
         "sections": ai_sections,
     }
 

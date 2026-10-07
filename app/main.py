@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from starlette.staticfiles import StaticFiles
 
 from app.core.config import settings
@@ -16,8 +16,11 @@ from app.api.routes.transcription import router as transcription_router
 from app.api.routes.report_draft import router as report_draft_router
 from app.api.routes.llm_report import router as llm_report_router
 from app.api.routes.report_export import router as report_export_router
-from app.api.routes.report_status import router as report_status_router
-from app.api.routes.report_status import inspection_status_router
+from app.api.routes.report_status import (
+    inspection_status_router,
+    report_status_router,
+    router as reports_legacy_router,
+)
 from app.api.routes.inspection_enrichment import router as inspection_enrichment_router
 from app.api.routes.productivity import router as productivity_router
 from app.api.routes.inspection_requests import router as inspection_requests_router
@@ -64,6 +67,17 @@ app = FastAPI(
 )
 
 
+@app.middleware("http")
+async def normalize_api_v1_path(request: Request, call_next):
+    path = request.scope.get("path", "")
+    prefix = settings.api_v1_prefix.rstrip("/")
+    if path.startswith(prefix) and not path.startswith(f"{prefix}/"):
+        normalized = f"{prefix}/{path[len(prefix):].lstrip('/')}"
+        request.scope["path"] = normalized
+        request.scope["raw_path"] = normalized.encode("latin-1")
+    return await call_next(request)
+
+
 Path("uploads").mkdir(parents=True, exist_ok=True)
 
 app.include_router(health_router, prefix=settings.api_v1_prefix)
@@ -77,6 +91,7 @@ app.include_router(transcription_router, prefix=settings.api_v1_prefix)
 app.include_router(report_draft_router, prefix=settings.api_v1_prefix)
 app.include_router(llm_report_router, prefix=settings.api_v1_prefix)
 app.include_router(report_export_router, prefix=settings.api_v1_prefix)
+app.include_router(reports_legacy_router, prefix=settings.api_v1_prefix)
 app.include_router(report_status_router, prefix=settings.api_v1_prefix)
 app.include_router(inspection_status_router, prefix=settings.api_v1_prefix)
 app.include_router(inspection_enrichment_router, prefix=settings.api_v1_prefix)

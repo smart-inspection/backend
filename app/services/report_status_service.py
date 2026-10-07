@@ -261,3 +261,216 @@ def list_report_history(
         .limit(safe_limit)
         .all()
     )
+
+
+def map_status_log_item(log: ReportStatusLog) -> dict[str, Any]:
+    return {
+        "id": log.id,
+        "inspection_id": log.inspection_id,
+        "previous_status": log.from_status,
+        "new_status": log.to_status,
+        "changed_by_user_id": log.actor_user_id,
+        "user_full_name": log.actor_name,
+        "comment": log.notes,
+        "created_at": log.created_at,
+        "from_status": log.from_status,
+        "to_status": log.to_status,
+        "actor_user_id": log.actor_user_id,
+        "actor_name": log.actor_name,
+        "notes": log.notes,
+    }
+
+
+def list_inspection_history(
+    db: Session,
+    inspection_id: int,
+) -> list[dict[str, Any]]:
+    inspection = get_inspection_by_id(db, inspection_id)
+    if not inspection:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Inspection not found",
+        )
+
+    logs = (
+        db.query(ReportStatusLog)
+        .filter(ReportStatusLog.inspection_id == inspection_id)
+        .order_by(ReportStatusLog.created_at.asc(), ReportStatusLog.id.asc())
+        .all()
+    )
+    return [map_status_log_item(log) for log in logs]
+
+
+def get_available_transitions(
+    db: Session,
+    inspection_id: int,
+    actor: User,
+) -> dict[str, Any]:
+    from app.constants.report_status import ALLOWED_TRANSITIONS
+
+    inspection = get_inspection_by_id(db, inspection_id)
+    if not inspection:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Inspection not found",
+        )
+
+    current_status = (inspection.status or REPORT_STATUS_DRAFT).strip().lower()
+    if current_status not in VALID_STATUSES:
+        current_status = REPORT_STATUS_DRAFT
+
+    base_transitions = ALLOWED_TRANSITIONS.get(current_status, [])
+
+    if actor.role == ROLE_ADMIN:
+        available = list(base_transitions)
+    elif actor.role == ROLE_INSPECTOR:
+        if current_status == REPORT_STATUS_FINALIZED:
+            available = []
+        else:
+            available = [s for s in base_transitions if s != REPORT_STATUS_FINALIZED]
+    else:
+        available = []
+
+    return {
+        "inspection_id": inspection_id,
+        "current_status": current_status,
+        "available_transitions": available,
+    }
+
+
+def get_or_create_latest_report_for_inspection(
+    db: Session,
+    inspection_id: int,
+) -> ReportDraft:
+    report = (
+        db.query(ReportDraft)
+        .filter(ReportDraft.inspection_id == inspection_id)
+        .order_by(ReportDraft.created_at.desc(), ReportDraft.id.desc())
+        .first()
+    )
+    if not report:
+        inspection = get_inspection_by_id(db, inspection_id)
+        if not inspection:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Inspection not found",
+            )
+        report = ReportDraft(
+            inspection_id=inspection_id,
+            status=inspection.status or REPORT_STATUS_DRAFT,
+        )
+        db.add(report)
+        db.flush()
+    return report
+
+
+def perform_inspection_transition(
+    db: Session,
+    inspection_id: int,
+    new_status: str,
+    actor: User,
+    comment: str | None = None,
+) -> tuple[str, dict[str, Any]]:
+    inspection = get_inspection_by_id(db, inspection_id)
+    if not inspection:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Inspection not found",
+        )
+
+    assert_inspector_access(inspection, actor)
+
+    report = get_or_create_latest_report_for_inspection(db, inspection_id)
+    current_status = (inspection.status or report.status or REPORT_STATUS_DRAFT).strip().lower()
+    if current_status not in VALID_STATUSES:
+        current_status = REPORT_STATUS_DRAFT
+
+    target_status = _normalize_status(new_status)
+    validate_role_status_transition(current_status, target_status, actor.role)
+
+    report.status = target_status
+    report.status_updated_at = _utcnow()
+    report.status_updated_by = actor.id
+    report.last_action = "status_changed"
+
+    log = register_report_event(
+        db=db,
+        report_draft=report,
+        action="status_changed",
+        actor_user_id=actor.id,
+        actor_name=actor.full_name,
+        from_status=current_status,
+        to_status=target_status,
+        notes=comment,
+        metadata_json={
+            "reason": "manual_status_update",
+            "actor_role": actor.role,
+        },
+    )
+
+    update_inspection_status(
+        db=db,
+        inspection_id=inspection_id,
+        new_status=target_status,
+    )
+
+    sync_productivity_from_inspection_status(
+        db=db,
+        inspection_id=inspection_id,
+        reset_finished_at=current_status == REPORT_STATUS_FINALIZED,
+    )
+
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+    db.refresh(log)
+
+    return target_status, map_status_log_item(log)
+
+
+def get_report_status_overview(
+    db: Session,
+    actor: User,
+) -> list[dict[str, Any]]:
+    from sqlalchemy import func
+    from sqlalchemy.orm import selectinload
+    from app.db.models.inspection import Inspection
+
+    query = db.query(Inspection).options(selectinload(Inspection.responsible_inspector))
+    if actor.role == ROLE_INSPECTOR:
+        query = query.filter(Inspection.responsible_inspector_id == actor.id)
+    inspections = query.order_by(Inspection.id.desc()).all()
+
+    log_stats = (
+        db.query(
+            ReportStatusLog.inspection_id,
+            func.count(ReportStatusLog.id).label("total_transitions"),
+            func.max(ReportStatusLog.created_at).label("last_status_update"),
+        )
+        .filter(ReportStatusLog.inspection_id.isnot(None))
+        .group_by(ReportStatusLog.inspection_id)
+        .all()
+    )
+    stats_map = {row.inspection_id: row for row in log_stats}
+
+    overview = []
+    for insp in inspections:
+        stat = stats_map.get(insp.id)
+        inspector_name = (
+            insp.responsible_inspector.full_name
+            if insp.responsible_inspector and insp.responsible_inspector.full_name
+            else "Sin asignar"
+        )
+        overview.append(
+            {
+                "inspection_id": insp.id,
+                "code": insp.code or f"INSP-{insp.id}",
+                "client_name": insp.client_name or "Sin cliente",
+                "inspector_name": inspector_name,
+                "created_at": insp.created_at,
+                "current_status": insp.status or REPORT_STATUS_DRAFT,
+                "last_status_update": stat.last_status_update if stat else (insp.updated_at or insp.created_at),
+                "total_transitions": int(stat.total_transitions) if stat else 0,
+            }
+        )
+    return overview

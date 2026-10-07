@@ -7,15 +7,6 @@ y la inferencia PaddleOCR a ``app.integrations.ocr.paddle_adapter``.
 
 import gc
 import logging
-import os
-
-os.environ["PADDLE_PDX_DISABLE_MKLDNN"] = "1"
-os.environ["FLAGS_use_mkldnn"] = "0"
-os.environ["FLAGS_use_onednn"] = "0"
-os.environ["FLAGS_enable_pir_api"] = "0"
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,15 +14,12 @@ from PIL import UnidentifiedImageError
 from sqlalchemy.orm import Session
 
 from app.db.models import Evidence
-from app.integrations.ocr.paddle_adapter import (
-    collect_texts_and_scores,
-    extract_with_paddle,
-    get_paddle_engine,
-)
+from app.integrations.ocr.groq_vision_adapter import groq_vision_adapter
 from app.integrations.ocr.preprocessing import (
     normalize_and_save,
     validate_image_integrity,
 )
+
 
 from app.core.carbon import track_ai_emissions
 
@@ -83,12 +71,14 @@ def preprocess_image(image_path: Path) -> Path:
 # ── Extracción ────────────────────────────────────────────────
 
 def extract_text_and_confidence(image_path: Path) -> tuple[str, float | None]:
-    """Ejecuta PaddleOCR sobre la imagen preprocesada.
+    """Ejecuta Groq Vision sobre la imagen preprocesada.
 
-    Delega al adaptador optimizado en ``paddle_adapter.py``.
+    Delega al adaptador en ``groq_vision_adapter.py``.
     """
     with track_ai_emissions(task_name="ocr_processing"):
-        return extract_with_paddle(image_path)
+        result = groq_vision_adapter.extract_text(image_path)
+        return result.get("text", "") or "", result.get("confidence")
+
 
 
 

@@ -4,17 +4,26 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_db, tecnico, todos
 from app.db.models.users import User
 from app.schemas.report_status import (
+    AvailableTransitionsResponse,
     ReportStatusLogResponse,
+    ReportStatusOverviewItem,
     ReportStatusResponse,
+    ReportStatusTransitionLogItem,
     ReportStatusUpdateRequest,
     StatusTransitionRequest,
     StatusTransitionResponse,
+    TransitionActionRequest,
+    TransitionActionResponse,
 )
 from app.services.productivity_service import get_productivity_by_inspection
 from app.services.report_status_service import (
     change_report_status,
+    get_available_transitions,
     get_report_or_404,
+    get_report_status_overview,
+    list_inspection_history,
     list_report_history,
+    perform_inspection_transition,
     transition_inspection_status,
 )
 
@@ -98,3 +107,68 @@ def get_history(
     _: User = Depends(todos),
 ):
     return list_report_history(db, report_draft_id, limit=limit)
+
+
+# ---------------------------------------------------------------------------
+# Router dedicado para /report-status (trazabilidad y máquina de estados)
+# ---------------------------------------------------------------------------
+report_status_router = APIRouter(prefix="/report-status", tags=["report-status"])
+
+
+@report_status_router.get("/overview", response_model=list[ReportStatusOverviewItem])
+def get_report_status_overview_endpoint(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(todos),
+):
+    return get_report_status_overview(db, current_user)
+
+
+@report_status_router.get(
+    "/{inspection_id}/history",
+    response_model=list[ReportStatusTransitionLogItem],
+)
+def get_inspection_status_history_endpoint(
+    inspection_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(todos),
+):
+    return list_inspection_history(db, inspection_id)
+
+
+@report_status_router.get(
+    "/{inspection_id}/available-transitions",
+    response_model=AvailableTransitionsResponse,
+)
+def get_available_transitions_endpoint(
+    inspection_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(todos),
+):
+    return get_available_transitions(db, inspection_id, current_user)
+
+
+@report_status_router.post(
+    "/{inspection_id}/transition",
+    response_model=TransitionActionResponse,
+)
+def transition_inspection_endpoint(
+    inspection_id: int,
+    payload: TransitionActionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(tecnico),
+):
+    new_status = payload.new_status or payload.to_status or ""
+    comment = payload.comment or payload.notes
+    target_status, log_item = perform_inspection_transition(
+        db=db,
+        inspection_id=inspection_id,
+        new_status=new_status,
+        actor=current_user,
+        comment=comment,
+    )
+    return TransitionActionResponse(
+        inspection_id=inspection_id,
+        current_status=target_status,
+        status=target_status,
+        log=ReportStatusTransitionLogItem(**log_item),
+    )

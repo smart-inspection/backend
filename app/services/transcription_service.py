@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Inspection, Evidence, Transcription
 from app.schemas.transcription import TranscriptionCreate, TranscriptionUpdate
 from app.services.storage_service import delete_physical_file
+from app.integrations.asr.whisper_adapter import whisper_adapter
 
 from app.core.carbon import track_ai_emissions
 
@@ -36,20 +37,25 @@ def _mock_confidence(text: str) -> float | None:
     return 80.0
 
 
-def _transcribe_with_whisper(audio_path: Path, model_name: str = "base", language: str | None = "es") -> tuple[str, float | None]:
-    try:
-        import whisper
-    except ImportError as exc:
-        raise RuntimeError(
-            "La librería openai-whisper no está instalada. Ejecuta: pip install openai-whisper"
-        ) from exc
+def _resolve_asr_model_name(requested: str | None) -> str:
+    """Los nombres locales heredados ("base", "small"...) se reemplazan por el modelo configurado."""
+    if requested and requested.startswith("whisper-"):
+        return requested
+    return whisper_adapter.model_name
 
+
+def _transcribe_with_whisper(audio_path: Path, model_name: str = "base", language: str | None = "es") -> tuple[str, float | None]:
     with track_ai_emissions(task_name="whisper_transcription"):
-        model = whisper.load_model(model_name)
-        result = model.transcribe(str(audio_path), language=language, fp16=False)
+        result = whisper_adapter.transcribe(
+            audio_path,
+            language=language,
+            model_name=_resolve_asr_model_name(model_name),
+        )
 
     text = (result.get("text") or "").strip()
-    confidence = _mock_confidence(text)
+    confidence = result.get("confidence")
+    if confidence is None:
+        confidence = _mock_confidence(text)
     return text, confidence
 
 
@@ -78,7 +84,7 @@ def create_and_process_transcription(db: Session, payload: TranscriptionCreate) 
         evidence_id=payload.evidence_id,
         source_file_path=str(audio_path),
         language=payload.language,
-        model_name=payload.model_name,
+        model_name=_resolve_asr_model_name(payload.model_name),
         raw_text=raw_text,
         final_text=raw_text,
         confidence=confidence,
