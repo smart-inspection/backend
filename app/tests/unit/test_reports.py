@@ -682,4 +682,63 @@ def test_legacy_patch_status_blocks_unassigned_inspector(client, db_session, aut
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"] == INSPECTION_ACCESS_DENIED_DETAIL
+    assert response.json()["detail"] == INSPECTION_ACCESS_DENIED_DETAIL
+
+
+def test_export_report_dual_auth_and_disposition(client, db_session, tmp_path, monkeypatch):
+    inspection = create_inspection_via_api(client)
+    draft = create_report_draft_record(db_session, inspection["id"])
+
+    docx_path = tmp_path / "report.docx"
+    docx_path.write_bytes(b"PK fake-docx")
+
+    monkeypatch.setattr(report_export_routes, "export_report_docx", lambda db, draft_id: str(docx_path))
+
+    # Con query param token o auth
+    res = client.get(f"/api/v1/report-export/docx/{draft.id}?token=some_token")
+    assert res.status_code == 200
+    assert "attachment; filename=" in res.headers.get("content-disposition", "")
+
+
+def test_report_status_routes_suite(client, db_session, auth_as):
+    admin = create_user_record(db_session, "admin")
+    inspector = create_user_record(db_session, "inspector")
+    inspection = create_assigned_inspection(client, inspector.id)
+    draft = create_report_draft_record(db_session, inspection["id"])
+
+    auth_as(admin)
+
+    # 1. available-transitions
+    res_avail = client.get(f"/api/v1/report-status/{inspection['id']}/available-transitions")
+    assert res_avail.status_code == 200
+    data_avail = res_avail.json()
+    assert data_avail["inspection_id"] == inspection["id"]
+    assert "in_review" in data_avail["available_transitions"]
+
+    # 2. transition
+    res_trans = client.post(
+        f"/api/v1/report-status/{inspection['id']}/transition",
+        json={"new_status": "in_review", "comment": "Inicio de revisión técnica"},
+    )
+    assert res_trans.status_code == 200
+    data_trans = res_trans.json()
+    assert data_trans["status"] == "in_review"
+    assert data_trans["log"]["comment"] == "Inicio de revisión técnica"
+    assert data_trans["log"]["new_status"] == "in_review"
+
+    # 3. history
+    res_hist = client.get(f"/api/v1/report-status/{inspection['id']}/history")
+    assert res_hist.status_code == 200
+    logs = res_hist.json()
+    assert len(logs) >= 1
+    assert logs[0]["new_status"] == "in_review"
+
+    # 4. overview
+    res_over = client.get("/api/v1/report-status/overview")
+    assert res_over.status_code == 200
+    overview = res_over.json()
+    matching = [item for item in overview if item["inspection_id"] == inspection["id"]]
+    assert len(matching) == 1
+    assert matching[0]["current_status"] == "in_review"
+    assert matching[0]["total_transitions"] >= 1
+

@@ -1,14 +1,44 @@
+import json
 from time import perf_counter
+from typing import Any
 
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, selectinload
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_ollama import ChatOllama
 
-from app.core.config import settings
 from app.db.models import Inspection, ReportDraft, Transcription
+from app.integrations.llm.llama_adapter import llama_adapter
 
 from app.core.carbon import track_ai_emissions
+
+_REPORT_MAX_TOKENS = 4096
+
+_SYSTEM_PROMPT = """
+Eres un asistente técnico especializado en inspecciones.
+Debes redactar un borrador de informe de inspección en español formal, técnico y claro.
+
+Reglas:
+- Usa únicamente la información proporcionada.
+- No inventes datos.
+- Si falta información, indícalo de forma explícita.
+- Prioriza campos críticos, observaciones, discrepancias OCR y recomendaciones.
+- La salida debe cumplir exactamente con el esquema estructurado solicitado.
+""".strip()
+
+_USER_PROMPT_TEMPLATE = """
+Genera un borrador estructurado del informe de inspección usando este contexto:
+
+{context}
+
+Necesito:
+- título,
+- resumen ejecutivo,
+- contexto,
+- hallazgos,
+- resumen de validación OCR,
+- resumen de observaciones transcritas,
+- recomendaciones,
+- y el informe final redactado.
+""".strip()
 
 
 class LLMReportSections(BaseModel):
@@ -22,12 +52,19 @@ class LLMReportSections(BaseModel):
     final_report: str = Field(description="Informe final redactado en español formal")
 
 
-def generate_draft_report(inspection_id: int, context_data: dict) -> str:
-    """Función de compatibilidad para generar borrador con tracking de emisiones."""
+def generate_draft_report(inspection_id: int, context_data: dict[str, Any]) -> str:
+    """Genera un borrador de informe en texto libre vía llama_adapter (Groq)."""
+    prompt = (
+        "Redacta un borrador del informe de inspección usando únicamente este contexto:\n\n"
+        + json.dumps(context_data, ensure_ascii=False, indent=2, default=str)
+    )
     with track_ai_emissions(task_name="llm_report_generation", inspection_id=inspection_id):
-        return f"Reporte preliminar generado para inspección {inspection_id}"
+        return llama_adapter.generate(
+            prompt,
+            system_prompt=_SYSTEM_PROMPT,
+            max_tokens=_REPORT_MAX_TOKENS,
+        )
 
-    
 
 def _safe(value, default="No registrado"):
     if value is None:
@@ -217,56 +254,13 @@ def generate_llm_report_draft(db: Session, inspection_id: int, template_version:
     snapshot = _build_snapshot(inspection, transcriptions)
     context_text = _format_input_context(snapshot)
 
-    llm = ChatOllama(
-        model=settings.ollama_model,
-        base_url=settings.ollama_base_url,
-        temperature=settings.llm_temperature,
-        timeout=settings.llm_timeout,
-    )
-
-    structured_llm = llm.with_structured_output(LLMReportSections)
-
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                """
-Eres un asistente técnico especializado en inspecciones.
-Debes redactar un borrador de informe de inspección en español formal, técnico y claro.
-
-Reglas:
-- Usa únicamente la información proporcionada.
-- No inventes datos.
-- Si falta información, indícalo de forma explícita.
-- Prioriza campos críticos, observaciones, discrepancias OCR y recomendaciones.
-- La salida debe cumplir exactamente con el esquema estructurado solicitado.
-                """.strip(),
-            ),
-            (
-                "human",
-                """
-Genera un borrador estructurado del informe de inspección usando este contexto:
-
-{context}
-
-Necesito:
-- título,
-- resumen ejecutivo,
-- contexto,
-- hallazgos,
-- resumen de validación OCR,
-- resumen de observaciones transcritas,
-- recomendaciones,
-- y el informe final redactado.
-                """.strip(),
-            ),
-        ]
-    )
-
-    chain = prompt | structured_llm
     with track_ai_emissions(task_name="llm_report_generation", inspection_id=inspection.id):
-        result = chain.invoke({"context": context_text})
-
+        result = llama_adapter.generate_structured(
+            _USER_PROMPT_TEMPLATE.format(context=context_text),
+            LLMReportSections,
+            system_prompt=_SYSTEM_PROMPT,
+            max_tokens=_REPORT_MAX_TOKENS,
+        )
 
     final_text = _render_final_text(result)
     elapsed_ms = int((perf_counter() - started) * 1000)
@@ -274,8 +268,8 @@ Necesito:
     enriched_snapshot = {
         **snapshot,
         "llm": {
-            "provider": "ollama",
-            "model": settings.ollama_model,
+            "provider": "groq",
+            "model": llama_adapter.model_name,
             "template_version": template_version,
             "generation_time_ms": elapsed_ms,
             "structured_sections": result.model_dump(),
