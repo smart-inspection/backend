@@ -741,4 +741,20 @@ def test_report_status_routes_suite(client, db_session, auth_as):
     assert len(matching) == 1
     assert matching[0]["current_status"] == "in_review"
     assert matching[0]["total_transitions"] >= 1
+
+
+def test_export_report_pdf_real_build_regression(client, db_session, tmp_path):
+    from app.services.report_export_service import export_report_pdf
+
+    inspection = create_inspection_via_api(client)
+    draft = create_report_draft_record(db_session, inspection["id"])
+
+    target_pdf = tmp_path / "real_output.pdf"
+    result_path = export_report_pdf(db_session, draft.id, output_path=target_pdf)
+
+    assert Path(result_path).exists()
+    assert Path(result_path).stat().st_size > 0
+    content = Path(result_path).read_bytes()
+    assert content.startswith(b"%PDF")
+
 

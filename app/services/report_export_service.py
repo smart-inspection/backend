@@ -1266,12 +1266,19 @@ def _pdf_footer(canvas, doc, context: dict[str, Any]):
 
 
 def _pdf_on_page(canvas, doc, context: dict[str, Any]):
-    """Wrapper que aplica footer + metadatos de accesibilidad por página (idioma es-PE)."""
+    """Wrapper que aplica footer + metadatos del documento por página."""
     _pdf_footer(canvas, doc, context)
-    # Embebe idioma es-PE en la primera página para conformidad PDF/UA y WCAG 3.1.1
     if canvas.getPageNumber() == 1:
-        canvas.setAuthor(_safe_text(context.get("company", {}).get("name"), "Smart Inspection"))
-        canvas._doc.info.add("Lang", "es-PE")
+        company_name = _safe_text(context.get("company", {}).get("name"), "Smart Inspection")
+        report_title = _safe_text(context.get("header", {}).get("report_title"), "Informe de Inspección Técnica")
+        canvas.setAuthor(company_name)
+        canvas.setTitle(report_title)
+        canvas.setSubject("Informe Técnico")
+        canvas.setCreator("Smart Inspection")
+        if hasattr(canvas, "_doc") and hasattr(canvas._doc, "info"):
+            canvas._doc.info.author = company_name
+            canvas._doc.info.title = report_title
+
 
 
 # =========================
